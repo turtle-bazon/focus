@@ -1,0 +1,6 @@
+focus.conf
+build/
+*.fasl
+*.dx64fsl
+*.lx64fsl
+nrepl-history*

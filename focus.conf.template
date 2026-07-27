@@ -1,0 +1,9 @@
+(:db-host "127.0.0.1"
+ :db-name "focus"
+ :db-user "focus"
+ :db-pass "focus"
+ :bind-address "0.0.0.0"
+ :bind-port 8080
+ :nrepl-port 5000
+ :nrepl-address "127.0.0.1"
+ :static-dir "./build/static/")

@@ -1,0 +1,43 @@
+(defsystem :focus
+  :name "focus"
+  :license "TBD"
+  :version "0.0.1.0"
+  :description "Issue tracker"
+  :depends-on (#:clack
+               #:clack-handler-wookie
+               #:websocket-driver
+               #:cl-json
+               #:postmodern
+               #:cl-postgres+local-time
+               #:iterate
+               #:cl-bazon
+               #:bazon-log
+               #:metabang-bind
+               #:clingon
+               #:usocket
+               #:bordeaux-threads
+               #:uiop
+               #:dexador)
+  :serial t
+  :components ((:module "src"
+                :components
+                 ((:file "package")
+                  (:file "config")
+                  (:file "migrations")
+                  (:file "db")
+                   (:file "nrepl")
+                   (:file "ws")
+                   (:module "models"
+                   :components ((:file "user")
+                                (:file "issue")
+                                (:file "label")
+                                (:file "comment")
+                                (:file "activity")
+                                (:file "attachment")
+                                (:file "webhook")))
+                  (:module "api"
+                   :components ((:file "routes")
+                                (:file "handlers")))
+                  (:module "cli"
+                   :components ((:file "commands")))
+                  (:file "main")))))

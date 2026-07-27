@@ -1,0 +1,9 @@
+glob:*.fasl
+glob:*.dx64fsl
+glob:*.lx64fsl
+glob:nrepl-history*
+glob:focus.conf
+glob:build/**
+glob:frontend/target/**
+glob:frontend/.lein-*
+glob:.opencode/**

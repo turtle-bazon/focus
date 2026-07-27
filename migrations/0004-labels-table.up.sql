@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS labels (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    color VARCHAR(7) DEFAULT '#3498db'
+);

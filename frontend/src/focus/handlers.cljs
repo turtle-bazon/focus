@@ -137,6 +137,28 @@
      {:db (assoc db :issues updated)})))
 
 (rf/reg-event-fx
+ :reorder-issue
+ (fn [{:keys [db]} [_ id status priority position]]
+   (let [issues (:issues db)
+         moved (first (filter #(= (:id %) id) issues))
+         moved-with-status (assoc moved :status status :priority priority)
+         without (vec (remove #(= (:id %) id) issues))
+         same-group (filter #(and (= (:status %) status) (= (:priority %) priority)) without)
+         other (vec (remove #(and (= (:status %) status) (= (:priority %) priority)) without))
+         before (vec (take position same-group))
+         after (vec (drop position same-group))
+         reindexed-group (vec (map-indexed (fn [idx issue]
+                                             (assoc issue :position idx))
+                                           (concat before [moved-with-status] after)))
+         all-issues (concat other reindexed-group)]
+     (api/update-issue id {:status status :priority priority :position position}
+      (fn [_])
+      (fn [error]
+        (rf/dispatch [:set-error (str "Failed to reorder issue: " error)])
+        (rf/dispatch [:fetch-issues {}])))
+     {:db (assoc db :issues (vec all-issues))})))
+
+(rf/reg-event-fx
  :delete-issue
  (fn [{:keys [db]} [_ id]]
    (api/delete-issue id

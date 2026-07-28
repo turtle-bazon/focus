@@ -151,12 +151,18 @@
                (status (json-assoc :status body))
                (priority (json-assoc :priority body))
                (assignee-id (json-assoc :assignee_id body))
-               (issue (update-issue id
-                                   :title title
-                                   :description description
-                                   :status status
-                                   :priority priority
-                                   :assignee-id assignee-id)))
+               (position (json-assoc :position body))
+               (issue (if position
+                         (reposition-issue id
+                                          (or status "open")
+                                          (or priority "medium")
+                                          position)
+                         (update-issue id
+                                      :title title
+                                      :description description
+                                      :status status
+                                      :priority priority
+                                      :assignee-id assignee-id))))
           (if issue
               (progn
                 (ws-broadcast-issue-update issue)

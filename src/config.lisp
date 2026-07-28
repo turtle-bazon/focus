@@ -17,6 +17,17 @@
         dir
         (merge-pathnames dir *default-pathname-defaults*))))
 
+;;; OAuth2 config
+
+(defun config->oauth2-client-id (config) (getf config :oauth2-client-id))
+(defun config->oauth2-client-secret (config) (getf config :oauth2-client-secret))
+(defun config->oauth2-authorize-uri (config) (getf config :oauth2-authorize-uri))
+(defun config->oauth2-token-uri (config) (getf config :oauth2-token-uri))
+(defun config->oauth2-redirect-uri (config) (getf config :oauth2-redirect-uri))
+(defun config->oauth2-scopes (config) (or (getf config :oauth2-scopes) '("openid" "profile" "email")))
+(defun config->app-name (config) (or (getf config :app-name) "Focus"))
+(defun config->app-description (config) (or (getf config :app-description) "Issue tracker"))
+
 ;;; Config validation
 
 (defun validate-config (config)

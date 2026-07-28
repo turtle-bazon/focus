@@ -17,7 +17,8 @@
                #:usocket
                #:bordeaux-threads
                #:uiop
-               #:dexador)
+               #:dexador
+               #:cl-oauth2)
   :serial t
   :components ((:module "src"
                 :components
@@ -37,6 +38,7 @@
                                 (:file "webhook")))
                   (:module "api"
                    :components ((:file "routes")
+                                (:file "auth")
                                 (:file "handlers")))
                   (:module "cli"
                    :components ((:file "commands")))

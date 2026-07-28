@@ -13,10 +13,15 @@
 
 (defn init []
   (rf/dispatch-sync [:initialize-db])
+  (rf/dispatch [:fetch-app-info])
+  (rf/dispatch [:check-auth])
+  (mount-root))
+
+(defn init-board []
   (rf/dispatch [:fetch-issues {}])
   (rf/dispatch [:fetch-users])
   (rf/dispatch [:fetch-labels])
-  (ws/connect)
-  (mount-root))
+  (ws/connect))
 
 (goog.object/set js/window "init" init)
+(goog.object/set js/window "initBoard" init-board)

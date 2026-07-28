@@ -41,6 +41,8 @@
     (setf local-time:*default-timezone* local-time:+utc-zone+)
     (local-time:set-local-time-cl-postgres-readers)
     (migrate-up)
+    ;; Initialize OAuth2 client from config
+    (make-oauth2-client-from-config config)
     ;; Check --rebuild-db flag
     (when (getf cli-opts :rebuild-db)
       (bl:info "Rebuilding database...")

@@ -5,7 +5,9 @@
 (rf/reg-event-db
  :initialize-db
  (fn [_ _]
-   {:current-view :board
+   {:current-view :landing
+    :auth nil
+    :app-info nil
     :issues []
     :users []
     :labels []
@@ -20,6 +22,64 @@
  :set-view
  (fn [db [_ view]]
    (assoc db :current-view view)))
+
+;;; Auth events
+
+(rf/reg-event-fx
+ :fetch-app-info
+ (fn [{:keys [db]} _]
+   (api/fetch-app-info
+    (fn [response]
+      (rf/dispatch [:set-app-info response]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to fetch app info: " error)])))
+   {:db db}))
+
+(rf/reg-event-db
+ :set-app-info
+ (fn [db [_ info]]
+   (assoc db :app-info info)))
+
+(rf/reg-event-fx
+ :check-auth
+ (fn [{:keys [db]} _]
+   (api/fetch-auth-me
+    (fn [response]
+      (rf/dispatch [:set-auth response]))
+    (fn [error]
+      (rf/dispatch [:set-auth {:authenticated false}])))
+   {:db (assoc db :loading true)}))
+
+(rf/reg-event-db
+ :set-auth
+ (fn [db [_ response]]
+   (let [authenticated (:authenticated response)]
+     (when authenticated
+       (js/initBoard))
+     (assoc db
+            :auth response
+            :loading false
+            :current-view (if authenticated :board :landing)))))
+
+(rf/reg-event-fx
+ :logout
+ (fn [{:keys [db]} _]
+   (api/auth-logout
+    (fn [_]
+      (rf/dispatch [:set-auth {:authenticated false}]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Logout failed: " error)])))
+   {:db db}))
+
+(rf/reg-event-db
+ :set-error
+ (fn [db [_ error]]
+   (assoc db :error error :loading false)))
+
+(rf/reg-event-db
+ :clear-error
+ (fn [db _]
+   (assoc db :error nil)))
 
 (rf/reg-event-fx
  :fetch-issues
@@ -169,16 +229,6 @@
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create comment: " error)])))
    {:db db}))
-
-(rf/reg-event-db
- :set-error
- (fn [db [_ error]]
-   (assoc db :error error :loading false)))
-
-(rf/reg-event-db
- :clear-error
- (fn [db _]
-   (assoc db :error nil)))
 
 (rf/reg-event-db
  :ws-update-issue

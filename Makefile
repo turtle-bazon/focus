@@ -25,6 +25,7 @@ dev-stop:
 
 tests:
 	sbcl --noinform --non-interactive \
+	  --eval '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' \
 	  --eval '(ql:quickload :focus-tests :silent t)' \
 	  --eval '(focus/tests:run-focus-tests)'
 

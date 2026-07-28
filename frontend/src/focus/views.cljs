@@ -20,6 +20,28 @@
 (defn get-priority-color [priority]
   (get priority-colors priority "#6b7280"))
 
+;;; Landing page
+
+(defn landing-page []
+  (let [app-info @(rf/subscribe [:app-info])]
+    [:div.landing-page
+     [:div.landing-hero
+      [:div.landing-content
+       [:h1.landing-title (or (:name app-info) "Focus")]
+       [:p.landing-description
+        (or (:description app-info)
+            "A Kanban-style issue tracker for teams.")]
+       (if (:oauth2_configured app-info)
+         [:a.login-button {:href "/api/auth/login"}
+          "Sign in with Mattermost"]
+         [:div.landing-no-oauth
+          [:p "OAuth2 is not configured yet."]
+          [:p "Set :oauth2-client-id and :oauth2-client-secret in focus.conf"]])]]
+     [:div.landing-footer
+      [:p "Focus v0.0.1.0"]]]))
+
+;;; Board components
+
 (defn issue-card [issue]
   (let [user-map @(rf/subscribe [:user-map])
         label-map @(rf/subscribe [:label-map])]
@@ -205,7 +227,8 @@
              :placeholder "Search issues..."}]]))
 
 (defn nav-bar []
-  (let [current-view @(rf/subscribe [:current-view])]
+  (let [current-view @(rf/subscribe [:current-view])
+        auth @(rf/subscribe [:auth])]
     [:div.nav-bar
      [:div.nav-brand "Focus"]
      [:div.nav-links
@@ -216,9 +239,15 @@
            :on-click #(do (rf/dispatch [:set-view :list])
                          (rf/dispatch [:fetch-issues {}]))}
        "List"]
-      [create-issue-modal]]]))
+      [create-issue-modal]]
+     [:div.nav-auth
+      (when-let [user (get auth :user)]
+        [:span.user-name (:username user)])
+      [:button.logout-button
+       {:on-click #(rf/dispatch [:logout])}
+       "Logout"]]]))
 
-(defn main-panel []
+(defn app-panel []
   (let [current-view @(rf/subscribe [:current-view])]
     [:div.app
      [nav-bar]
@@ -229,3 +258,12 @@
        :list [board-view]
        :detail [issue-detail]
        [board-view])]))
+
+(defn main-panel []
+  (let [authenticated? @(rf/subscribe [:authenticated?])
+        loading @(rf/subscribe [:loading])]
+    (if loading
+      [:div.loading-screen "Loading..."]
+      (if authenticated?
+        [app-panel]
+        [landing-page]))))

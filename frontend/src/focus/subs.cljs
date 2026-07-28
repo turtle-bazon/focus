@@ -7,6 +7,21 @@
    (:current-view db)))
 
 (rf/reg-sub
+ :auth
+ (fn [db _]
+   (:auth db)))
+
+(rf/reg-sub
+ :authenticated?
+ (fn [db _]
+   (get-in db [:auth :authenticated] false)))
+
+(rf/reg-sub
+ :app-info
+ (fn [db _]
+   (:app-info db)))
+
+(rf/reg-sub
  :issues
  (fn [db _]
    (:issues db)))

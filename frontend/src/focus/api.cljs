@@ -3,86 +3,85 @@
 
 (def base-url "/api")
 
-(defn request [method path & [{:keys [params on-success on-error]}]]
-  (ajax/ajax-request
-   {:method method
-    :uri (str base-url path)
-    :format (ajax/json-request-format)
-    :response-format (ajax/json-response-format {:keywords? true})
-    :params params
-    :handler on-success
-    :error-handler on-error}))
+(defn get [path params on-success on-error]
+  (ajax/GET (str base-url path)
+            {:params params
+             :response-format (ajax/json-response-format {:keywords? true})
+             :handler on-success
+             :error-handler on-error}))
+
+(defn post [path params on-success on-error]
+  (ajax/POST (str base-url path)
+             {:params params
+              :format (ajax/json-request-format)
+              :response-format (ajax/json-response-format {:keywords? true})
+              :handler on-success
+              :error-handler on-error}))
+
+(defn put [path params on-success on-error]
+  (ajax/PUT (str base-url path)
+            {:params params
+             :format (ajax/json-request-format)
+             :response-format (ajax/json-response-format {:keywords? true})
+             :handler on-success
+             :error-handler on-error}))
+
+(defn delete [path on-success on-error]
+  (ajax/DELETE (str base-url path)
+               {:response-format (ajax/json-response-format {:keywords? true})
+                :handler on-success
+                :error-handler on-error}))
+
+(defn fetch-app-info [on-success on-error]
+  (get "/app/info" nil on-success on-error))
+
+(defn fetch-auth-me [on-success on-error]
+  (get "/auth/me" nil on-success on-error))
+
+(defn auth-logout [on-success on-error]
+  (post "/auth/logout" nil on-success on-error))
 
 (defn fetch-issues [params on-success on-error]
-  (request :get "/issues" {:params params
-                           :on-success on-success
-                           :on-error on-error}))
+  (get "/issues" params on-success on-error))
 
 (defn fetch-issue [id on-success on-error]
-  (request :get (str "/issues/" id)
-           {:on-success on-success
-            :on-error on-error}))
+  (get (str "/issues/" id) nil on-success on-error))
 
 (defn create-issue [data on-success on-error]
-  (request :post "/issues" {:params data
-                            :on-success on-success
-                            :on-error on-error}))
+  (post "/issues" data on-success on-error))
 
 (defn update-issue [id data on-success on-error]
-  (request :put (str "/issues/" id)
-           {:params data
-            :on-success on-success
-            :on-error on-error}))
+  (put (str "/issues/" id) data on-success on-error))
 
 (defn delete-issue [id on-success on-error]
-  (request :delete (str "/issues/" id)
-           {:on-success on-success
-            :on-error on-error}))
+  (delete (str "/issues/" id) on-success on-error))
 
 (defn search-issues [query on-success on-error]
-  (request :get "/issues/search" {:params {:q query}
-                                  :on-success on-success
-                                  :on-error on-error}))
+  (get "/issues/search" {:q query} on-success on-error))
 
 (defn fetch-users [on-success on-error]
-  (request :get "/users" {:on-success on-success
-                          :on-error on-error}))
+  (get "/users" nil on-success on-error))
 
 (defn create-user [data on-success on-error]
-  (request :post "/users" {:params data
-                           :on-success on-success
-                           :on-error on-error}))
+  (post "/users" data on-success on-error))
 
 (defn fetch-labels [on-success on-error]
-  (request :get "/labels" {:on-success on-success
-                           :on-error on-error}))
+  (get "/labels" nil on-success on-error))
 
 (defn create-label [data on-success on-error]
-  (request :post "/labels" {:params data
-                            :on-success on-success
-                            :on-error on-error}))
+  (post "/labels" data on-success on-error))
 
 (defn fetch-comments [issue-id on-success on-error]
-  (request :get (str "/issues/" issue-id "/comments")
-           {:on-success on-success
-            :on-error on-error}))
+  (get (str "/issues/" issue-id "/comments") nil on-success on-error))
 
 (defn create-comment [issue-id data on-success on-error]
-  (request :post (str "/issues/" issue-id "/comments")
-           {:params data
-            :on-success on-success
-            :on-error on-error}))
+  (post (str "/issues/" issue-id "/comments") data on-success on-error))
 
 (defn fetch-activity [issue-id on-success on-error]
-  (request :get (str "/issues/" issue-id "/activity")
-           {:on-success on-success
-            :on-error on-error}))
+  (get (str "/issues/" issue-id "/activity") nil on-success on-error))
 
 (defn fetch-webhooks [on-success on-error]
-  (request :get "/webhooks" {:on-success on-success
-                             :on-error on-error}))
+  (get "/webhooks" nil on-success on-error))
 
 (defn create-webhook [data on-success on-error]
-  (request :post "/webhooks" {:params data
-                              :on-success on-success
-                              :on-error on-error}))
+  (post "/webhooks" data on-success on-error))

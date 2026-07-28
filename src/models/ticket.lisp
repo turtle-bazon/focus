@@ -124,21 +124,25 @@
           (after (when (< pos (length neighbors))
                    (elt neighbors pos))))
       ;; Step 4: compute mediant position
+      ;; Mediant of a/b and c/d is (a+c)/(b+d), always between the two fractions.
+      ;; "before first": mediant of sentinel 0/1 and after → after-num/(after-den+1)
+      ;; "after last": before-num/before-den + 1 → (before-num+before-den)/before-den
       (let ((new-num (cond
                        ((and before after)
                         (+ (getf before :position_num) (getf after :position_num)))
                        (before
-                        (1+ (* 2 (getf before :position_num))))
+                        (+ (getf before :position_num)
+                           (getf before :position_den)))
                        (after
-                        (* 2 (getf after :position_num)))
+                        (getf after :position_num))
                        (t 0)))
             (new-den (cond
                        ((and before after)
                         (+ (getf before :position_den) (getf after :position_den)))
                        (before
-                        (* 2 (getf before :position_den)))
+                        (getf before :position_den))
                        (after
-                        (* 2 (getf after :position_den)))
+                        (1+ (getf after :position_den)))
                        (t 1))))
         ;; Step 5: assign position
         (db-execute

@@ -89,6 +89,23 @@
       (regex path)
     (when id (parse-integer id))))
 
+;;; Activity helpers
+
+(defun get-user-id-from-env (env)
+  "Extract user ID from session cookie. Returns integer or NIL."
+  (let* ((session-id (cl-oauth2:get-session-id-from-request env))
+         (db-session (when session-id (get-db-session session-id))))
+    (when db-session
+      (getf db-session :user-id))))
+
+(defun log-activity (ticket-id user-id action &key details)
+  "Log an activity entry. Silently ignores errors."
+  (when user-id
+    (handler-case
+        (create-activity ticket-id user-id action :details details)
+      (error (e)
+        (bl:warn "Failed to log activity: ~a" e)))))
+
 ;;; Ticket handlers
 
 (defun handle-list-tickets (env)
@@ -137,7 +154,10 @@
                                             (if (stringp assignee-id)
                                                 (parse-integer assignee-id)
                                                 assignee-id)))))
-      (let ((ticket (get-ticket-by-id id)))
+      (let ((ticket (get-ticket-by-id id))
+            (user-id (get-user-id-from-env env)))
+        (log-activity id user-id "created"
+                       :details `((:title ,title)))
         (ws-broadcast-ticket-created ticket)
         (json-response `(:id ,id) 201)))))
 
@@ -152,6 +172,8 @@
                (priority (json-assoc :priority body))
                (assignee-id (json-assoc :assignee_id body))
                (position (json-assoc :position body))
+               (old-ticket (get-ticket-by-id id))
+               (user-id (get-user-id-from-env env))
                (ticket (if position
                           (reposition-ticket id
                                             (or status "open")
@@ -165,6 +187,15 @@
                                         :assignee-id assignee-id))))
           (if ticket
               (progn
+                (when (and old-ticket status (not (equal (getf old-ticket :status) status)))
+                  (log-activity id user-id "status_changed"
+                                 :details `((:from . ,(getf old-ticket :status)) (:to . ,status))))
+                (when (and old-ticket priority (not (equal (getf old-ticket :priority) priority)))
+                  (log-activity id user-id "priority_changed"
+                                 :details `((:from . ,(getf old-ticket :priority)) (:to . ,priority))))
+                (when (and old-ticket title (not (equal (getf old-ticket :title) title)))
+                  (log-activity id user-id "title_changed"
+                                 :details `((:from . ,(getf old-ticket :title)) (:to . ,title))))
                 (ws-broadcast-ticket-update ticket)
                 (json-response ticket))
               (error-response "Ticket not found" 404)))
@@ -206,6 +237,10 @@
                                          user-id)
                                      comment-body))
                  (comment (get-comment-by-id id)))
+            (log-activity ticket-id
+                          (if (stringp user-id) (parse-integer user-id) user-id)
+                          "comment_added"
+                          :details `((:user_id ,user-id) (:body ,comment-body)))
             (ws-broadcast-comment-created comment ticket-id)
             (json-response `(:id ,id) 201)))
         (error-response "Invalid ticket ID"))))

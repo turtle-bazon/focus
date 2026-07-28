@@ -133,7 +133,10 @@
                              i))
                        tickets)]
      (api/update-ticket id {:status status}
-      (fn [_]) ;; already updated locally, ignore response
+      (fn [_]
+        (api/fetch-activity id
+         (fn [resp] (rf/dispatch [:set-activity (:activity resp)]))
+         (fn [_])))
       (fn [error]
         (rf/dispatch [:set-error (str "Failed to update ticket: " error)])
         (rf/dispatch [:fetch-tickets {}])))
@@ -157,13 +160,37 @@
          current-ticket (:current-ticket db)
          new-current (when (and current-ticket (= (:id current-ticket) id))
                        (assoc current-ticket :status status :priority priority))]
-     (api/update-ticket id {:status status :priority priority :position position}
-      (fn [_])
+      (api/update-ticket id (cond-> {:status status :priority priority}
+                             position (assoc :position position))
+       (fn [_]
+         (api/fetch-activity id
+          (fn [resp] (rf/dispatch [:set-activity (:activity resp)]))
+          (fn [_])))
       (fn [error]
         (rf/dispatch [:set-error (str "Failed to reorder ticket: " error)])
         (rf/dispatch [:fetch-tickets {}])))
      {:db (assoc db
                  :tickets (vec all-tickets)
+                 :current-ticket (or new-current current-ticket))})))
+
+(rf/reg-event-fx
+ :update-ticket-field
+ (fn [{:keys [db]} [_ id field value]]
+   (let [tickets (:tickets db)
+         updated-tickets (mapv (fn [t] (if (= (:id t) id) (assoc t field value) t)) tickets)
+         current-ticket (:current-ticket db)
+         new-current (when (and current-ticket (= (:id current-ticket) id))
+                       (assoc current-ticket field value))]
+      (api/update-ticket id {field value}
+       (fn [_]
+         (api/fetch-activity id
+          (fn [resp] (rf/dispatch [:set-activity (:activity resp)]))
+          (fn [_])))
+       (fn [error]
+         (rf/dispatch [:set-error (str "Failed to update ticket: " error)])
+         (rf/dispatch [:fetch-tickets {}])))
+     {:db (assoc db
+                 :tickets updated-tickets
                  :current-ticket (or new-current current-ticket))})))
 
 (rf/reg-event-fx
@@ -270,7 +297,10 @@
                      :user_id (:user_id data)
                      :body (:body data)
                      :created_at (.toISOString (js/Date.))}]
-        (rf/dispatch [:add-comment comment ticket-id])))
+        (rf/dispatch [:add-comment comment ticket-id])
+        (api/fetch-activity ticket-id
+         (fn [resp] (rf/dispatch [:set-activity (:activity resp)]))
+         (fn [_]))))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create comment: " error)])))
    {:db db}))

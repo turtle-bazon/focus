@@ -255,7 +255,8 @@
              "Create"]]]])])))
 
 (defn ticket-detail []
-  (let [new-comment (r/atom "")]
+  (let [new-comment (r/atom "")
+        active-tab (r/atom :comments)]
     (fn []
       (let [ticket @(rf/subscribe [:current-ticket])
             comments @(rf/subscribe [:comments])
@@ -278,11 +279,10 @@
                {:value (:priority ticket)
                 :style {:background-color (get-priority-color (:priority ticket))}
                 :on-change (fn [e]
-                             (rf/dispatch [:reorder-ticket
+                             (rf/dispatch [:update-ticket-field
                                            (:id ticket)
-                                           (:status ticket)
-                                           (-> e .-target .-value)
-                                           (:position ticket)]))}
+                                           :priority
+                                           (-> e .-target .-value)]))}
                [:option {:value "low"} "low"]
                [:option {:value "medium"} "medium"]
                [:option {:value "high"} "high"]]
@@ -294,39 +294,63 @@
                   (or (:username user) (str "User " (:assignee_id ticket))))])]
            [:div.ticket-body
             [:p (:description ticket)]]
-           [:div.ticket-section
-            [:h3 "Comments"]
-            [:div.comments-list
-             (for [comment comments]
-               ^{:key (:id comment)}
-               [:div.comment
-                [:div.comment-header
-                 [:span.comment-user
-                  (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
-                    (or (:username author) (str "User " (:user_id comment))))]
-                 [:span.comment-date (:created_at comment)]]
-                [:div.comment-body (:body comment)]])]
-            [:div.comment-form
-             [:textarea {:value @new-comment
-                        :on-change #(reset! new-comment (-> % .-target .-value))
-                        :placeholder "Add a comment..."}]
-             [:button.submit-button
-              {:on-click (fn []
-                          (when (seq @new-comment)
-                            (rf/dispatch [:create-comment
-                                         (:id ticket)
-                                         {:user_id user-id
-                                          :body @new-comment}])
-                            (reset! new-comment "")))}
-              "Add Comment"]]]
-           [:div.ticket-section
-            [:h3 "Activity"]
-            [:div.activity-list
-             (for [item activity]
-               ^{:key (:id item)}
-               [:div.activity-item
-                [:span.activity-action (:action item)]
-                [:span.activity-date (:created_at item)]])]]]
+           [:div.ticket-tabs
+            [:button.tab-button
+             {:class (when (= @active-tab :comments) "active")
+              :on-click #(reset! active-tab :comments)}
+             (str "Comments (" (count comments) ")")]
+            [:button.tab-button
+             {:class (when (= @active-tab :activity) "active")
+              :on-click #(reset! active-tab :activity)}
+             (str "Activity (" (count activity) ")")]]
+           (if (= @active-tab :comments)
+             [:div.ticket-section
+              [:div.comments-list
+               (for [comment comments]
+                 ^{:key (:id comment)}
+                 [:div.comment
+                  [:div.comment-header
+                   [:span.comment-user
+                    (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
+                      (or (:username author) (str "User " (:user_id comment))))]
+                   [:span.comment-date (:created_at comment)]]
+                  [:div.comment-body (:body comment)]])]
+              [:div.comment-form
+               [:textarea {:value @new-comment
+                          :on-change #(reset! new-comment (-> % .-target .-value))
+                          :placeholder "Add a comment..."}]
+               [:button.submit-button
+                {:on-click (fn []
+                            (when (seq @new-comment)
+                              (rf/dispatch [:create-comment
+                                           (:id ticket)
+                                           {:user_id user-id
+                                            :body @new-comment}])
+                              (reset! new-comment "")))}
+                "Add Comment"]]]
+             [:div.ticket-section
+              [:div.activity-list
+               (let [user-map @(rf/subscribe [:user-map])]
+                 (for [item activity]
+                   ^{:key (:id item)}
+                   (let [details (cond
+                                   (string? (:details item))
+                                   (js->clj (js/JSON.parse (:details item)) :keywordize-keys true)
+                                   (map? (:details item))
+                                   (:details item)
+                                   :else nil)
+                         actor (get user-map (:user_id item))
+                         actor-name (or (:username actor) (str "User " (:user_id item)))
+                         action-text (case (:action item)
+                                       "created" (str actor-name " created this ticket")
+                                       "status_changed" (str actor-name " changed status from " (:from details) " to " (:to details))
+                                       "priority_changed" (str actor-name " changed priority from " (:from details) " to " (:to details))
+                                       "title_changed" (str actor-name " changed title")
+                                       "comment_added" (str actor-name " added a comment")
+                                       (str actor-name " " (:action item)))]
+                     [:div.activity-item
+                      [:span.activity-action action-text]
+                      [:span.activity-date (:created_at item)]])))]])]
           [:div.loading "Loading..."])))))
 
 (defn error-banner []

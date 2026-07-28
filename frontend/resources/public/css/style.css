@@ -394,8 +394,37 @@ body {
 }
 
 .ticket-body {
-  margin-bottom: 32px;
+  margin-bottom: 24px;
   line-height: 1.6;
+}
+
+.ticket-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #334155;
+}
+
+.tab-button {
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-button:hover {
+  color: #94a3b8;
+}
+
+.tab-button.active {
+  color: #e2e8f0;
+  border-bottom-color: #3b82f6;
 }
 
 .ticket-section {

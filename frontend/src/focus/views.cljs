@@ -53,10 +53,10 @@
       {:style {:color color}}
       priority]]))
 
-(defn draggable-card [issue on-card-over card-idx drag-idx]
+(defn draggable-card [issue on-card-over card-idx drag-idx set-drag-idx!]
   (let [card-ref (r/atom nil)
         dragging (r/atom false)]
-    (fn [issue on-card-over card-idx drag-idx]
+    (fn [issue on-card-over card-idx drag-idx set-drag-idx!]
       (let [show-top (and drag-idx (= drag-idx card-idx) (not @dragging))
             show-bottom (and drag-idx (= drag-idx (inc card-idx)) (not @dragging))]
         [:div.issue-card
@@ -83,7 +83,9 @@
                                (.appendChild js/document.body ghost)
                                (.setDragImage (.-dataTransfer e) ghost 20 20)
                                (js/setTimeout #(.removeChild js/document.body ghost) 0))))
-          :on-drag-end (fn [_] (reset! dragging false))
+          :on-drag-end (fn [_]
+                         (reset! dragging false)
+                         (set-drag-idx! nil))
           :on-click #(rf/dispatch [:set-view :detail])
           :on-mouse-down (fn [e]
                            (when (= (.-button e) 0)
@@ -113,17 +115,33 @@
 
 (defn priority-group [status-id priority issues]
   (let [drag-idx (r/atom nil)
-        set-drag-idx! (fn [idx] (reset! drag-idx idx))]
+        set-drag-idx! (fn [idx] (reset! drag-idx idx))
+        group-ref (r/atom nil)]
     (fn [status-id priority issues]
       (let [show-end (and @drag-idx (= @drag-idx (count issues)))]
         [:div.priority-group
-         {:on-drag-over (fn [e]
+         {:ref #(reset! group-ref %)
+          :on-drag-over (fn [e]
                           (.preventDefault e)
                           (set! (.. e -dataTransfer -dropEffect) "move")
-                          (reset! drag-idx (count issues)))
+                          (let [el @group-ref
+                                children (array-seq (.. el -children))
+                                cards (rest children)
+                                y (- (.-clientY e) (.. el -getBoundingClientRect -top))]
+                            (loop [i 0 cs cards]
+                              (if (seq cs)
+                                (let [card-el (first cs)
+                                      rect (.getBoundingClientRect card-el)
+                                      card-top (- (.. rect -top) (.. el -getBoundingClientRect -top))
+                                      card-h (.-height rect)]
+                                  (if (< y (+ card-top (/ card-h 2)))
+                                    (reset! drag-idx i)
+                                    (recur (inc i) (rest cs))))
+                                (reset! drag-idx (count issues))))))
           :on-drag-leave (fn [e]
-                           (when-not (.. e -relatedTarget)
-                             (reset! drag-idx nil)))
+                           (let [related (.. e -relatedTarget)]
+                             (when-not (and related (.contains @group-ref related))
+                               (reset! drag-idx nil))))
           :on-drop (fn [e]
                      (.preventDefault e)
                      (.stopPropagation e)
@@ -142,17 +160,17 @@
           (map-indexed
            (fn [idx issue]
              ^{:key (:id issue)}
-             [draggable-card issue set-drag-idx! idx @drag-idx])
+             [draggable-card issue set-drag-idx! idx @drag-idx set-drag-idx!])
            issues))
          (when show-end
            [:div.drop-line-active])]))))
 
+(def all-priorities ["high" "medium" "low"])
+
 (defn board-column [status]
   (let [issues-by-status @(rf/subscribe [:issues-by-status])
         issues (get issues-by-status (:id status) [])
-        by-priority (->> issues
-                         (group-by :priority)
-                         (sort-by (fn [[p _]] (get priority-order p 1))))]
+        by-priority (into {} (map (fn [[p iss]] [p iss]) (group-by :priority issues)))]
     [:div.board-column
      {:on-drag-over (fn [e]
                       (.preventDefault e)
@@ -160,10 +178,9 @@
       :on-drop (fn [e]
                  (.preventDefault e)
                  (let [issue-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
-                       ;; find the dragged issue's current priority
                        dragged (first (filter #(= (:id %) issue-id) issues))
                        priority (or (:priority dragged) "medium")
-                       group-issues (get (group-by :priority issues) priority [])
+                       group-issues (get by-priority priority [])
                        target-idx (count group-issues)]
                    (rf/dispatch [:reorder-issue issue-id (:id status) priority target-idx])))}
      [:div.column-header
@@ -172,9 +189,9 @@
       [:span.column-count (count issues)]]
      [:div.column-cards
       (doall
-       (for [[priority group-issues] by-priority]
+       (for [priority (sort-by #(get priority-order % 1) all-priorities)]
          ^{:key priority}
-         [priority-group (:id status) priority group-issues]))]]))
+         [priority-group (:id status) priority (get by-priority priority [])]))]]))
 
 (defn board-view []
   [:div.board-view
@@ -247,13 +264,22 @@
          {:on-click #(rf/dispatch [:set-view :board])}
          "← Back to Board"]
         [:h1 (str "#" (:id issue) " " (:title issue))]]
-       [:div.issue-meta
-        [:span.status-badge
-         {:style {:background-color (get-status-color (:status issue))}}
-         (:status issue)]
-        [:span.priority-badge
-         {:style {:background-color (get-priority-color (:priority issue))}}
-         (:priority issue)]
+        [:div.issue-meta
+         [:span.status-badge
+          {:style {:background-color (get-status-color (:status issue))}}
+          (:status issue)]
+         [:select.priority-select
+          {:value (:priority issue)
+           :style {:background-color (get-priority-color (:priority issue))}
+           :on-change (fn [e]
+                        (rf/dispatch [:reorder-issue
+                                      (:id issue)
+                                      (:status issue)
+                                      (-> e .-target .-value)
+                                      (:position issue)]))}
+          [:option {:value "low"} "low"]
+          [:option {:value "medium"} "medium"]
+          [:option {:value "high"} "high"]]
         (when (and (:assignee_id issue)
                    (not= (:assignee_id issue) "null")
                    (not (nil? (:assignee_id issue))))

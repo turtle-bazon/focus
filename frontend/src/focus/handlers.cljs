@@ -150,13 +150,18 @@
          reindexed-group (vec (map-indexed (fn [idx issue]
                                              (assoc issue :position idx))
                                            (concat before [moved-with-status] after)))
-         all-issues (concat other reindexed-group)]
+         all-issues (concat other reindexed-group)
+         current-issue (:current-issue db)
+         new-current (when (and current-issue (= (:id current-issue) id))
+                       (assoc current-issue :status status :priority priority))]
      (api/update-issue id {:status status :priority priority :position position}
       (fn [_])
       (fn [error]
         (rf/dispatch [:set-error (str "Failed to reorder issue: " error)])
         (rf/dispatch [:fetch-issues {}])))
-     {:db (assoc db :issues (vec all-issues))})))
+     {:db (assoc db
+                 :issues (vec all-issues)
+                 :current-issue (or new-current current-issue))})))
 
 (rf/reg-event-fx
  :delete-issue

@@ -255,74 +255,79 @@
              "Create"]]]])])))
 
 (defn ticket-detail []
-  (let [ticket @(rf/subscribe [:current-ticket])
-        comments @(rf/subscribe [:comments])
-        activity @(rf/subscribe [:activity])
-        users @(rf/subscribe [:users])
-        new-comment (r/atom "")]
-    (if ticket
-      [:div.ticket-detail
-       [:div.ticket-detail-header
-        [:button.back-button
-         {:on-click #(js/navigateTo "/")}
-         "← Back to Board"]
-        [:h1 (str "#" (:id ticket) " " (:title ticket))]]
-        [:div.ticket-meta
-         [:span.status-badge
-          {:style {:background-color (get-status-color (:status ticket))}}
-          (:status ticket)]
-         [:select.priority-select
-          {:value (:priority ticket)
-           :style {:background-color (get-priority-color (:priority ticket))}
-           :on-change (fn [e]
-                        (rf/dispatch [:reorder-ticket
-                                      (:id ticket)
-                                      (:status ticket)
-                                      (-> e .-target .-value)
-                                      (:position ticket)]))}
-          [:option {:value "low"} "low"]
-          [:option {:value "medium"} "medium"]
-          [:option {:value "high"} "high"]]
-        (when (and (:assignee_id ticket)
-                   (not= (:assignee_id ticket) "null")
-                   (not (nil? (:assignee_id ticket))))
-          [:span.assignee-badge
-           (let [user (first (filter #(= (:id %) (js/parseInt (:assignee_id ticket))) users))]
-             (or (:username user) (str "User " (:assignee_id ticket))))])]
-       [:div.ticket-body
-        [:p (:description ticket)]]
-       [:div.ticket-section
-        [:h3 "Comments"]
-        [:div.comments-list
-         (for [comment comments]
-           ^{:key (:id comment)}
-           [:div.comment
-            [:div.comment-header
-             [:span.comment-user (str "User " (:user_id comment))]
-             [:span.comment-date (:created_at comment)]]
-            [:div.comment-body (:body comment)]])]
-        [:div.comment-form
-         [:textarea {:value @new-comment
-                    :on-change #(reset! new-comment (-> % .-target .-value))
-                    :placeholder "Add a comment..."}]
-         [:button.submit-button
-          {:on-click (fn []
-                      (when (seq @new-comment)
-                        (rf/dispatch [:create-comment
-                                     (:id ticket)
-                                     {:user_id 1
-                                      :body @new-comment}])
-                        (reset! new-comment "")))}
-          "Add Comment"]]]
-       [:div.ticket-section
-        [:h3 "Activity"]
-        [:div.activity-list
-         (for [item activity]
-           ^{:key (:id item)}
-           [:div.activity-item
-            [:span.activity-action (:action item)]
-            [:span.activity-date (:created_at item)]])]]]
-      [:div.loading "Loading..."])))
+  (let [new-comment (r/atom "")]
+    (fn []
+      (let [ticket @(rf/subscribe [:current-ticket])
+            comments @(rf/subscribe [:comments])
+            activity @(rf/subscribe [:activity])
+            users @(rf/subscribe [:users])
+            auth @(rf/subscribe [:auth])
+            user-id (get-in auth [:user :id] 1)]
+        (if ticket
+          [:div.ticket-detail
+           [:div.ticket-detail-header
+            [:button.back-button
+             {:on-click #(js/navigateTo "/")}
+             "← Back to Board"]
+            [:h1 (str "#" (:id ticket) " " (:title ticket))]]
+             [:div.ticket-meta
+              [:span.status-badge
+               {:style {:background-color (get-status-color (:status ticket))}}
+               (:status ticket)]
+              [:select.priority-select
+               {:value (:priority ticket)
+                :style {:background-color (get-priority-color (:priority ticket))}
+                :on-change (fn [e]
+                             (rf/dispatch [:reorder-ticket
+                                           (:id ticket)
+                                           (:status ticket)
+                                           (-> e .-target .-value)
+                                           (:position ticket)]))}
+               [:option {:value "low"} "low"]
+               [:option {:value "medium"} "medium"]
+               [:option {:value "high"} "high"]]
+             (when (and (:assignee_id ticket)
+                        (not= (:assignee_id ticket) "null")
+                        (not (nil? (:assignee_id ticket))))
+               [:span.assignee-badge
+                (let [user (first (filter #(= (:id %) (js/parseInt (:assignee_id ticket))) users))]
+                  (or (:username user) (str "User " (:assignee_id ticket))))])]
+           [:div.ticket-body
+            [:p (:description ticket)]]
+           [:div.ticket-section
+            [:h3 "Comments"]
+            [:div.comments-list
+             (for [comment comments]
+               ^{:key (:id comment)}
+               [:div.comment
+                [:div.comment-header
+                 [:span.comment-user
+                  (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
+                    (or (:username author) (str "User " (:user_id comment))))]
+                 [:span.comment-date (:created_at comment)]]
+                [:div.comment-body (:body comment)]])]
+            [:div.comment-form
+             [:textarea {:value @new-comment
+                        :on-change #(reset! new-comment (-> % .-target .-value))
+                        :placeholder "Add a comment..."}]
+             [:button.submit-button
+              {:on-click (fn []
+                          (when (seq @new-comment)
+                            (rf/dispatch [:create-comment
+                                         (:id ticket)
+                                         {:user_id user-id
+                                          :body @new-comment}])
+                            (reset! new-comment "")))}
+              "Add Comment"]]]
+           [:div.ticket-section
+            [:h3 "Activity"]
+            [:div.activity-list
+             (for [item activity]
+               ^{:key (:id item)}
+               [:div.activity-item
+                [:span.activity-action (:action item)]
+                [:span.activity-date (:created_at item)]])]]]
+          [:div.loading "Loading..."])))))
 
 (defn error-banner []
   (let [error @(rf/subscribe [:error])]

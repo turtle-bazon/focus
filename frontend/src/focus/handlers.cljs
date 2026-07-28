@@ -266,7 +266,11 @@
  (fn [{:keys [db]} [_ ticket-id data]]
    (api/create-comment ticket-id data
     (fn [response]
-      (rf/dispatch [:fetch-ticket-detail ticket-id]))
+      (let [comment {:id (:id response)
+                     :user_id (:user_id data)
+                     :body (:body data)
+                     :created_at (.toISOString (js/Date.))}]
+        (rf/dispatch [:add-comment comment ticket-id])))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create comment: " error)])))
    {:db db}))

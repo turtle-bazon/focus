@@ -609,11 +609,47 @@ body {
   position: relative;
 }
 
+.issue-card {
+  position: relative;
+  transition: opacity 0.12s ease, box-shadow 0.12s ease;
+}
+
+.issue-card.drop-target-top::before {
+  content: '';
+  position: absolute;
+  top: -32px;
+  left: 0;
+  right: 0;
+  height: 56px;
+  border: 2px dashed #3b82f6;
+  border-radius: 8px;
+  background-color: rgba(59, 130, 246, 0.08);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.issue-card.drop-target-bottom::after {
+  content: '';
+  position: absolute;
+  bottom: -32px;
+  left: 0;
+  right: 0;
+  height: 56px;
+  border: 2px dashed #3b82f6;
+  border-radius: 8px;
+  background-color: rgba(59, 130, 246, 0.08);
+  pointer-events: none;
+  z-index: 10;
+}
+
 .issue-card.dragging {
-  opacity: 0;
-  height: 0;
-  overflow: hidden;
-  margin: 0;
-  padding: 0;
-  border: none;
+  opacity: 0.3;
+}
+
+.drop-line-active {
+  height: 3px;
+  background-color: #3b82f6;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+  margin: 2px 0;
 }

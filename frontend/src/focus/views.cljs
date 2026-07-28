@@ -53,117 +53,99 @@
       {:style {:color color}}
       priority]]))
 
-(defn drop-slot [idx drag-idx set-drag-idx!]
-  (let [active (= idx drag-idx)]
-    [:div.drop-slot
-     {:on-drag-over (fn [e]
-                      (.preventDefault e)
-                      (.stopPropagation e)
-                      (set! (.. e -dataTransfer -dropEffect) "move")
-                      (set-drag-idx! idx))
-      :style (if active
-               {:height "60px"
-                :margin "4px 0"
-                :border "2px dashed #3b82f6"
-                :border-radius "8px"
-                :background-color "rgba(59, 130, 246, 0.08)"
-                :transition "all 0.15s ease"}
-               {:height "2px"
-                :margin "0"
-                :border-radius "1px"
-                :transition "all 0.15s ease"})}]))
-
 (defn draggable-card [issue on-card-over card-idx drag-idx]
   (let [card-ref (r/atom nil)
         dragging (r/atom false)]
     (fn [issue on-card-over card-idx drag-idx]
-      [:div.issue-card
-       {:ref #(reset! card-ref %)
-        :draggable true
-        :class (when @dragging "dragging")
-        :style (when @dragging {:opacity "0" :height "0" :overflow "hidden" :margin "0" :padding "0" :border "none"})
-        :on-drag-start (fn [e]
-                         (reset! dragging true)
-                         (.setData (.-dataTransfer e) "text/plain" (str (:id issue)))
-                         (set! (.. e -dataTransfer -effectAllowed) "move")
-                         (when-let [el @card-ref]
-                           (let [ghost (.cloneNode el true)]
-                             (set! (.. ghost -style -position) "fixed")
-                             (set! (.. ghost -style -top) "-9999px")
-                             (set! (.. ghost -style -left) "-9999px")
-                             (set! (.. ghost -style -width) (str (.-offsetWidth el) "px"))
-                             (set! (.. ghost -style -opacity) "0.9")
-                             (set! (.. ghost -style -pointerEvents) "none")
-                             (set! (.. ghost -style -boxShadow) "0 8px 24px rgba(0,0,0,0.4)")
-                             (set! (.. ghost -style -border) "1px solid #3b82f6")
-                             (set! (.. ghost -style -zIndex) "9999")
-                             (.appendChild js/document.body ghost)
-                             (.setDragImage (.-dataTransfer e) ghost 20 20)
-                             (js/setTimeout #(.removeChild js/document.body ghost) 0))))
-        :on-drag-end (fn [_] (reset! dragging false))
-        :on-click #(rf/dispatch [:set-view :detail])
-        :on-mouse-down (fn [e]
-                         (when (= (.-button e) 0)
-                           (rf/dispatch [:fetch-issue-detail (:id issue)])))
-        :on-drag-over (fn [e]
-                        (.preventDefault e)
-                        (.stopPropagation e)
-                        (set! (.. e -dataTransfer -dropEffect) "move")
-                        (let [rect (.getBoundingClientRect (.-currentTarget e))
-                              y (- (.-clientY e) (.-top rect))
-                              h (.-height rect)]
-                          (on-card-over (if (< y (/ h 2)) card-idx (inc card-idx)))))}
-       [:div.issue-card-header
-        [:span.issue-id (str "#" (:id issue))]
-        [:span.issue-priority
-         {:style {:background-color (get-priority-color (:priority issue))}}
-         (:priority issue)]]
-       [:h3.issue-title (:title issue)]
-       (when (and (:assignee_id issue)
-                  (not= (:assignee_id issue) "null")
-                  (not (nil? (:assignee_id issue))))
-         [:div.issue-assignee
-          [:span.avatar
-           (let [user-map @(rf/subscribe [:user-map])
-                 user (get user-map (js/parseInt (:assignee_id issue)))]
-             (or (:username user) (str "User " (:assignee_id issue))))]])])))
+      (let [show-top (and drag-idx (= drag-idx card-idx) (not @dragging))
+            show-bottom (and drag-idx (= drag-idx (inc card-idx)) (not @dragging))]
+        [:div.issue-card
+         {:ref #(reset! card-ref %)
+          :draggable true
+          :class (str (when @dragging " dragging")
+                      (when show-top " drop-target-top")
+                      (when show-bottom " drop-target-bottom"))
+          :on-drag-start (fn [e]
+                           (reset! dragging true)
+                           (.setData (.-dataTransfer e) "text/plain" (str (:id issue)))
+                           (set! (.. e -dataTransfer -effectAllowed) "move")
+                           (when-let [el @card-ref]
+                             (let [ghost (.cloneNode el true)]
+                               (set! (.. ghost -style -position) "fixed")
+                               (set! (.. ghost -style -top) "-9999px")
+                               (set! (.. ghost -style -left) "-9999px")
+                               (set! (.. ghost -style -width) (str (.-offsetWidth el) "px"))
+                               (set! (.. ghost -style -opacity) "0.9")
+                               (set! (.. ghost -style -pointerEvents) "none")
+                               (set! (.. ghost -style -boxShadow) "0 8px 24px rgba(0,0,0,0.4)")
+                               (set! (.. ghost -style -border) "1px solid #3b82f6")
+                               (set! (.. ghost -style -zIndex) "9999")
+                               (.appendChild js/document.body ghost)
+                               (.setDragImage (.-dataTransfer e) ghost 20 20)
+                               (js/setTimeout #(.removeChild js/document.body ghost) 0))))
+          :on-drag-end (fn [_] (reset! dragging false))
+          :on-click #(rf/dispatch [:set-view :detail])
+          :on-mouse-down (fn [e]
+                           (when (= (.-button e) 0)
+                             (rf/dispatch [:fetch-issue-detail (:id issue)])))
+          :on-drag-over (fn [e]
+                          (.preventDefault e)
+                          (.stopPropagation e)
+                          (set! (.. e -dataTransfer -dropEffect) "move")
+                          (let [rect (.getBoundingClientRect (.-currentTarget e))
+                                y (- (.-clientY e) (.-top rect))
+                                h (.-height rect)]
+                            (on-card-over (if (< y (/ h 2)) card-idx (inc card-idx)))))}
+         [:div.issue-card-header
+          [:span.issue-id (str "#" (:id issue))]
+          [:span.issue-priority
+           {:style {:background-color (get-priority-color (:priority issue))}}
+           (:priority issue)]]
+         [:h3.issue-title (:title issue)]
+         (when (and (:assignee_id issue)
+                    (not= (:assignee_id issue) "null")
+                    (not (nil? (:assignee_id issue))))
+           [:div.issue-assignee
+            [:span.avatar
+             (let [user-map @(rf/subscribe [:user-map])
+                   user (get user-map (js/parseInt (:assignee_id issue)))]
+               (or (:username user) (str "User " (:assignee_id issue))))]])]))))
 
 (defn priority-group [status-id priority issues]
   (let [drag-idx (r/atom nil)
         set-drag-idx! (fn [idx] (reset! drag-idx idx))]
     (fn [status-id priority issues]
-      [:div.priority-group
-       {:on-drag-over (fn [e]
-                        (.preventDefault e)
-                        (set! (.. e -dataTransfer -dropEffect) "move")
-                        (reset! drag-idx (count issues)))
-        :on-drag-leave (fn [e]
-                         (when-not (.. e -relatedTarget)
-                           (reset! drag-idx nil)))
-        :on-drop (fn [e]
-                   (.preventDefault e)
-                   (.stopPropagation e)
-                   (let [issue-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
-                         raw-idx (or @drag-idx (count issues))
-                         ;; Convert from full-list index to without-dragged index
-                         dragged-pos (first (keep-indexed
-                                             (fn [i iss] (when (= (:id iss) issue-id) i))
-                                             issues))
-                         target-idx (if (and dragged-pos (< dragged-pos raw-idx))
-                                      (dec raw-idx)
-                                      raw-idx)]
-                     (reset! drag-idx nil)
-                     (rf/dispatch [:reorder-issue issue-id status-id priority target-idx])))}
-       [priority-group-header priority]
-       (doall
-        (map-indexed
-         (fn [idx issue]
-           ^{:key (:id issue)}
-           [:div.drag-wrapper
-            [drop-slot idx @drag-idx set-drag-idx!]
-            [draggable-card issue set-drag-idx! idx @drag-idx]])
-         issues))
-       [drop-slot (count issues) @drag-idx set-drag-idx!]])))
+      (let [show-end (and @drag-idx (= @drag-idx (count issues)))]
+        [:div.priority-group
+         {:on-drag-over (fn [e]
+                          (.preventDefault e)
+                          (set! (.. e -dataTransfer -dropEffect) "move")
+                          (reset! drag-idx (count issues)))
+          :on-drag-leave (fn [e]
+                           (when-not (.. e -relatedTarget)
+                             (reset! drag-idx nil)))
+          :on-drop (fn [e]
+                     (.preventDefault e)
+                     (.stopPropagation e)
+                     (let [issue-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
+                           raw-idx (or @drag-idx (count issues))
+                           dragged-pos (first (keep-indexed
+                                               (fn [i iss] (when (= (:id iss) issue-id) i))
+                                               issues))
+                           target-idx (if (and dragged-pos (< dragged-pos raw-idx))
+                                        (dec raw-idx)
+                                        raw-idx)]
+                       (reset! drag-idx nil)
+                       (rf/dispatch [:reorder-issue issue-id status-id priority target-idx])))}
+         [priority-group-header priority]
+         (doall
+          (map-indexed
+           (fn [idx issue]
+             ^{:key (:id issue)}
+             [draggable-card issue set-drag-idx! idx @drag-idx])
+           issues))
+         (when show-end
+           [:div.drop-line-active])]))))
 
 (defn board-column [status]
   (let [issues-by-status @(rf/subscribe [:issues-by-status])

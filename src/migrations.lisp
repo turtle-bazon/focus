@@ -154,4 +154,13 @@ ALTER TABLE activity ADD CONSTRAINT activity_ticket_id_fkey FOREIGN KEY (ticket_
 ALTER TABLE attachments ADD CONSTRAINT attachments_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE;
 "
 )
+    ("0013-0013-fractional-positionin"
+     :up "ALTER TABLE tickets ADD COLUMN position_num INTEGER DEFAULT 0;
+ALTER TABLE tickets ADD COLUMN position_den INTEGER DEFAULT 1;
+
+UPDATE tickets SET position_num = position, position_den = 1;
+
+ALTER TABLE tickets DROP COLUMN position;
+"
+)
 ))

@@ -6,9 +6,10 @@
   "Create a new ticket. Returns the ticket ID."
   (let ((status (or status "open")))
     (db-query
-     "INSERT INTO tickets (title, description, status, priority, assignee_id, position)
+     "INSERT INTO tickets (title, description, status, priority, assignee_id, position_num, position_den)
       VALUES ($1, $2, $3::varchar, $4, NULLIF($5, 0),
-              COALESCE((SELECT MAX(position) + 1 FROM tickets WHERE status = $3::varchar), 0))
+              COALESCE((SELECT MAX(position_num) + 1 FROM tickets WHERE status = $3::varchar), 0),
+              1)
       RETURNING id"
      title
      description
@@ -20,7 +21,8 @@
 (defun get-ticket-by-id (id)
   "Get ticket by ID. Returns plist or nil."
   (let ((results (db-query
-                  "SELECT id, title, description, status, priority, assignee_id, position, created_at, updated_at
+                  "SELECT id, title, description, status, priority, assignee_id,
+                          position_num, position_den, created_at, updated_at
                    FROM tickets WHERE id = $1"
                   id :alists)))
     (when results (alist-to-plist (car results)))))
@@ -46,10 +48,11 @@
           (all-params (append (reverse params)
                              (list limit (* (- page 1) limit)))))
       (pg-query-params
-       (format nil "SELECT id, title, description, status, priority, assignee_id, position, created_at, updated_at
+       (format nil "SELECT id, title, description, status, priority, assignee_id,
+                           position_num, position_den, created_at, updated_at
                     FROM tickets ~a
                     ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 1 END,
-                             position ASC, created_at DESC
+                             (position_num::float / position_den) ASC, created_at DESC
                     LIMIT $~d OFFSET $~d"
                where
                (+ 1 (length params))
@@ -90,25 +93,65 @@
        (reverse params))))
   (get-ticket-by-id id))
 
+(defconstant +compression-threshold+ 1000
+  "Compress fractional positions when denominator exceeds this.")
+
+(defun compress-positions (ticket-ids)
+  "Reassign contiguous integer positions to a list of ticket IDs."
+  (iter (for idx from 0)
+        (for ticket-id in ticket-ids)
+        (db-execute
+         "UPDATE tickets SET position_num = $1, position_den = 1 WHERE id = $2"
+         idx ticket-id)))
+
 (defun reposition-ticket (id new-status new-priority new-position)
-  "Move a ticket to a new status/priority/position and reindex the group."
+  "Move a ticket using fractional indexing. Only updates the moved ticket.
+   Compresses the group when denominators grow too large."
+  ;; Step 1: move ticket to target group
   (db-execute
    "UPDATE tickets SET status = $1, priority = $2, updated_at = NOW() WHERE id = $3"
    new-status new-priority id)
-  (let ((others (mapcar (lambda (plist) (getf plist :id))
-                        (pg-query-params
-                         "SELECT id FROM tickets WHERE status = $1 AND priority = $2 AND id != $3
-                          ORDER BY position ASC, created_at DESC"
-                         (list new-status new-priority id))))
+  ;; Step 2: get neighbors in the group (ordered)
+  (let ((neighbors (pg-query-params
+                     "SELECT id, position_num, position_den
+                      FROM tickets WHERE status = $1 AND priority = $2 AND id != $3
+                      ORDER BY (position_num::float / position_den) ASC, created_at DESC"
+                     (list new-status new-priority id)))
         (pos (max 0 (min new-position 10000))))
-    (let ((ordered (append (subseq others 0 (min pos (length others)))
-                           (list id)
-                           (subseq others (min pos (length others))))))
-      (iter (for idx from 0)
-            (for ticket-id in ordered)
-            (db-execute
-             "UPDATE tickets SET position = $1 WHERE id = $2"
-             idx ticket-id))))
+    ;; Step 3: find neighbors at target position
+    (let ((before (when (and (plusp pos) (>= (length neighbors) pos))
+                    (elt neighbors (1- pos))))
+          (after (when (< pos (length neighbors))
+                   (elt neighbors pos))))
+      ;; Step 4: compute mediant position
+      (let ((new-num (cond
+                       ((and before after)
+                        (+ (getf before :position_num) (getf after :position_num)))
+                       (before
+                        (1+ (* 2 (getf before :position_num))))
+                       (after
+                        (* 2 (getf after :position_num)))
+                       (t 0)))
+            (new-den (cond
+                       ((and before after)
+                        (+ (getf before :position_den) (getf after :position_den)))
+                       (before
+                        (* 2 (getf before :position_den)))
+                       (after
+                        (* 2 (getf after :position_den)))
+                       (t 1))))
+        ;; Step 5: assign position
+        (db-execute
+         "UPDATE tickets SET position_num = $1, position_den = $2, updated_at = NOW() WHERE id = $3"
+         new-num new-den id)
+        ;; Step 6: compress if denominator too large
+        (when (> new-den +compression-threshold+)
+          (let ((all-ids (mapcar (lambda (plist) (getf plist :id))
+                                 (pg-query-params
+                                  "SELECT id FROM tickets WHERE status = $1 AND priority = $2
+                                   ORDER BY (position_num::float / position_den) ASC, created_at DESC"
+                                  (list new-status new-priority)))))
+            (compress-positions all-ids))))))
   (get-ticket-by-id id))
 
 (defun delete-ticket (id)
@@ -118,9 +161,10 @@
 (defun search-tickets (search-query)
   "Full-text search tickets by title and description."
   (pg-query-params
-   "SELECT id, title, description, status, priority, assignee_id, position, created_at, updated_at
+   "SELECT id, title, description, status, priority, assignee_id,
+           position_num, position_den, created_at, updated_at
     FROM tickets
     WHERE title ILIKE $1 OR description ILIKE $1
     ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 1 END,
-             position ASC, created_at DESC"
+             (position_num::float / position_den) ASC, created_at DESC"
    (list (format nil "%~a%" search-query))))

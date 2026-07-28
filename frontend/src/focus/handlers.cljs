@@ -84,13 +84,12 @@
 (rf/reg-event-fx
  :fetch-issues
  (fn [{:keys [db]} [_ params]]
-   (assoc db :loading true)
    (api/fetch-issues params
     (fn [response]
       (rf/dispatch [:set-issues (:issues response)]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to fetch issues: " error)])))
-   {:db (assoc db :loading true)}))
+   {:db db}))
 
 (rf/reg-event-db
  :set-issues
@@ -102,10 +101,14 @@
  (fn [{:keys [db]} [_ data]]
    (api/create-issue data
     (fn [response]
-      (rf/dispatch [:fetch-issues {}]))
+      (rf/dispatch [:add-issue {:id (:id response)
+                                :title (:title data)
+                                :description (:description data)
+                                :priority (:priority data)
+                                :status "open"}]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create issue: " error)])))
-   {:db (assoc db :loading true)}))
+   {:db db}))
 
 (rf/reg-event-fx
  :update-issue
@@ -250,7 +253,9 @@
 (rf/reg-event-db
  :add-issue
  (fn [db [_ issue]]
-   (update db :issues conj issue)))
+   (let [issues (:issues db)
+         without (vec (remove #(= (:id %) (:id issue)) issues))]
+     (assoc db :issues (vec (cons issue without))))))
 
 (rf/reg-event-db
  :remove-issue

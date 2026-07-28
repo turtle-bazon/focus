@@ -329,12 +329,24 @@
        [:button {:on-click #(rf/dispatch [:clear-error])} "×"]])))
 
 (defn search-bar []
-  (let [query @(rf/subscribe [:search-query])]
-    [:div.search-bar
-     [:input {:type "text"
-             :value query
-             :on-change #(rf/dispatch [:search-issues (-> % .-target .-value)])
-             :placeholder "Search issues..."}]]))
+  (let [debounce-timer (r/atom nil)]
+    (fn []
+      (let [query @(rf/subscribe [:search-query])]
+        [:div.search-bar
+         [:input {:type "text"
+                 :value query
+                 :on-change (fn [e]
+                              (let [v (-> e .-target .-value)]
+                                (rf/dispatch [:set-search-query v])
+                                (when @debounce-timer
+                                  (js/clearTimeout @debounce-timer))
+                                (reset! debounce-timer
+                                        (js/setTimeout
+                                         (fn []
+                                           (rf/dispatch [:search-issues v])
+                                           (reset! debounce-timer nil))
+                                         300))))
+                 :placeholder "Search issues..."}]]))))
 
 (defn nav-bar []
   (let [current-view @(rf/subscribe [:current-view])

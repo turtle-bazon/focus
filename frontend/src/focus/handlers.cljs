@@ -177,14 +177,16 @@
  :search-issues
  (fn [{:keys [db]} [_ query]]
    (if (empty? query)
-     {:db (assoc db :search-query "" :issues [])}
+     (do
+       (rf/dispatch [:fetch-issues {}])
+       {:db (assoc db :search-query "")})
      (do
        (api/search-issues query
         (fn [response]
           (rf/dispatch [:set-issues (:issues response)]))
         (fn [error]
           (rf/dispatch [:set-error (str "Failed to search: " error)])))
-       {:db (assoc db :search-query query :loading true)}))))
+       {:db (assoc db :search-query query)}))))
 
 (rf/reg-event-db
  :set-search-query

@@ -55,7 +55,8 @@
 
 (defn draggable-card [ticket on-card-over card-idx drag-idx set-drag-idx!]
   (let [card-ref (r/atom nil)
-        dragging (r/atom false)]
+        dragging (r/atom false)
+        just-dragged (r/atom false)]
     (fn [ticket on-card-over card-idx drag-idx set-drag-idx!]
       (let [show-top (and drag-idx (= drag-idx card-idx) (not @dragging))
             show-bottom (and drag-idx (= drag-idx (inc card-idx)) (not @dragging))]
@@ -66,6 +67,7 @@
                       (when show-top " drop-target-top")
                       (when show-bottom " drop-target-bottom"))
           :on-drag-start (fn [e]
+                           (.stopPropagation e)
                            (reset! dragging true)
                            (.setData (.-dataTransfer e) "text/plain" (str (:id ticket)))
                            (set! (.. e -dataTransfer -effectAllowed) "move")
@@ -85,10 +87,12 @@
                                (js/setTimeout #(.removeChild js/document.body ghost) 0))))
           :on-drag-end (fn [_]
                          (reset! dragging false)
+                         (reset! just-dragged true)
+                         (js/setTimeout #(reset! just-dragged false) 200)
                          (set-drag-idx! nil))
-          :on-click #(js/navigateTo (str "/tickets/" (:id ticket)))
-          :on-mouse-down (fn [e]
-                           (.preventDefault e))
+          :on-click (fn [e]
+                      (when-not @just-dragged
+                        (js/navigateTo (str "/tickets/" (:id ticket)))))
           :on-drag-over (fn [e]
                           (.preventDefault e)
                           (.stopPropagation e)

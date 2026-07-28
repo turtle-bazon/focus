@@ -89,10 +89,10 @@
       (regex path)
     (when id (parse-integer id))))
 
-;;; Issue handlers
+;;; Ticket handlers
 
-(defun handle-list-issues (env)
-  "GET /api/issues"
+(defun handle-list-tickets (env)
+  "GET /api/tickets"
   (bind ((query-params (parse-query-string (getf env :query-string)))
          (status (get-query-param query-params "status"))
          (priority (get-query-param query-params "priority"))
@@ -102,25 +102,25 @@
                  (parse-integer (get-query-param query-params "page"))))
          (limit (when (get-query-param query-params "limit")
                   (parse-integer (get-query-param query-params "limit"))))
-         (issues (list-issues :status status
-                              :priority priority
-                              :assignee-id assignee-id
-                              :page page
-                              :limit limit)))
-    (json-response `(:issues ,issues))))
+         (tickets (list-tickets :status status
+                                :priority priority
+                                :assignee-id assignee-id
+                                :page page
+                                :limit limit)))
+    (json-response `(:tickets ,tickets))))
 
-(defun handle-get-issue (env)
-  "GET /api/issues/:id"
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/issues/(\\d+)$")))
+(defun handle-get-ticket (env)
+  "GET /api/tickets/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)$")))
     (if id
-        (let ((issue (get-issue-by-id id)))
-          (if issue
-              (json-response issue)
-              (error-response "Issue not found" 404)))
-        (error-response "Invalid issue ID"))))
+        (let ((ticket (get-ticket-by-id id)))
+          (if ticket
+              (json-response ticket)
+              (error-response "Ticket not found" 404)))
+        (error-response "Invalid ticket ID"))))
 
-(defun handle-create-issue (env)
-  "POST /api/issues"
+(defun handle-create-ticket (env)
+  "POST /api/tickets"
   (bind ((body (parse-json-body env))
          (title (json-assoc :title body))
          (description (json-assoc :description body))
@@ -128,22 +128,22 @@
          (priority (json-assoc :priority body))
          (assignee-id (json-assoc :assignee_id body)))
     (unless title
-      (return-from handle-create-issue (error-response "Title is required")))
-    (bind ((id (create-issue title
-                            :description description
-                            :status status
-                            :priority priority
-                            :assignee-id (when assignee-id
-                                          (if (stringp assignee-id)
-                                              (parse-integer assignee-id)
-                                              assignee-id)))))
-      (let ((issue (get-issue-by-id id)))
-        (ws-broadcast-issue-created issue)
+      (return-from handle-create-ticket (error-response "Title is required")))
+    (bind ((id (create-ticket title
+                              :description description
+                              :status status
+                              :priority priority
+                              :assignee-id (when assignee-id
+                                            (if (stringp assignee-id)
+                                                (parse-integer assignee-id)
+                                                assignee-id)))))
+      (let ((ticket (get-ticket-by-id id)))
+        (ws-broadcast-ticket-created ticket)
         (json-response `(:id ,id) 201)))))
 
-(defun handle-update-issue (env)
-  "PUT /api/issues/:id"
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/issues/(\\d+)$")))
+(defun handle-update-ticket (env)
+  "PUT /api/tickets/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)$")))
     (if id
         (bind ((body (parse-json-body env))
                (title (json-assoc :title body))
@@ -152,47 +152,47 @@
                (priority (json-assoc :priority body))
                (assignee-id (json-assoc :assignee_id body))
                (position (json-assoc :position body))
-               (issue (if position
-                         (reposition-issue id
-                                          (or status "open")
-                                          (or priority "medium")
-                                          position)
-                         (update-issue id
-                                      :title title
-                                      :description description
-                                      :status status
-                                      :priority priority
-                                      :assignee-id assignee-id))))
-          (if issue
+               (ticket (if position
+                          (reposition-ticket id
+                                            (or status "open")
+                                            (or priority "medium")
+                                            position)
+                          (update-ticket id
+                                        :title title
+                                        :description description
+                                        :status status
+                                        :priority priority
+                                        :assignee-id assignee-id))))
+          (if ticket
               (progn
-                (ws-broadcast-issue-update issue)
-                (json-response issue))
-              (error-response "Issue not found" 404)))
-        (error-response "Invalid issue ID"))))
+                (ws-broadcast-ticket-update ticket)
+                (json-response ticket))
+              (error-response "Ticket not found" 404)))
+        (error-response "Invalid ticket ID"))))
 
-(defun handle-delete-issue (env)
-  "DELETE /api/issues/:id"
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/issues/(\\d+)$")))
+(defun handle-delete-ticket (env)
+  "DELETE /api/tickets/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)$")))
     (if id
         (progn
-          (delete-issue id)
-          (ws-broadcast-issue-deleted id)
-          (json-response `(:message "Issue deleted")))
-        (error-response "Invalid issue ID"))))
+          (delete-ticket id)
+          (ws-broadcast-ticket-deleted id)
+          (json-response `(:message "Ticket deleted")))
+        (error-response "Invalid ticket ID"))))
 
 ;;; Comment handlers
 
 (defun handle-list-comments (env)
-  "GET /api/issues/:id/comments"
-  (let ((issue-id (extract-id-from-path (getf env :path-info) "^/api/issues/(\\d+)/comments$")))
-    (if issue-id
-        (json-response `(:comments ,(list-comments issue-id)))
-        (error-response "Invalid issue ID"))))
+  "GET /api/tickets/:id/comments"
+  (let ((ticket-id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/comments$")))
+    (if ticket-id
+        (json-response `(:comments ,(list-comments ticket-id)))
+        (error-response "Invalid ticket ID"))))
 
 (defun handle-create-comment (env)
-  "POST /api/issues/:id/comments"
-  (let ((issue-id (extract-id-from-path (getf env :path-info) "^/api/issues/(\\d+)/comments$")))
-    (if issue-id
+  "POST /api/tickets/:id/comments"
+  (let ((ticket-id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/comments$")))
+    (if ticket-id
         (bind ((body (parse-json-body env))
                (user-id (json-assoc :user_id body))
                (comment-body (json-assoc :body body)))
@@ -200,35 +200,35 @@
             (return-from handle-create-comment (error-response "User ID is required")))
           (unless comment-body
             (return-from handle-create-comment (error-response "Body is required")))
-          (bind ((id (create-comment issue-id
+          (bind ((id (create-comment ticket-id
                                      (if (stringp user-id)
                                          (parse-integer user-id)
                                          user-id)
                                      comment-body))
                  (comment (get-comment-by-id id)))
-            (ws-broadcast-comment-created comment issue-id)
+            (ws-broadcast-comment-created comment ticket-id)
             (json-response `(:id ,id) 201)))
-        (error-response "Invalid issue ID"))))
+        (error-response "Invalid ticket ID"))))
 
 ;;; Activity handlers
 
 (defun handle-list-activity (env)
-  "GET /api/issues/:id/activity"
-  (let ((issue-id (extract-id-from-path (getf env :path-info) "^/api/issues/(\\d+)/activity$")))
-    (if issue-id
-        (json-response `(:activity ,(list-activity issue-id)))
-        (error-response "Invalid issue ID"))))
+  "GET /api/tickets/:id/activity"
+  (let ((ticket-id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/activity$")))
+    (if ticket-id
+        (json-response `(:activity ,(list-activity ticket-id)))
+        (error-response "Invalid ticket ID"))))
 
 ;;; Search handlers
 
-(defun handle-search-issues (env)
-  "GET /api/issues/search?q=..."
+(defun handle-search-tickets (env)
+  "GET /api/tickets/search?q=..."
   (bind ((query-params (parse-query-string (getf env :query-string)))
          (query (get-query-param query-params "q")))
     (unless query
-      (return-from handle-search-issues (error-response "Query parameter 'q' is required")))
-    (bind ((issues (search-issues query)))
-      (json-response `(:issues ,issues)))))
+      (return-from handle-search-tickets (error-response "Query parameter 'q' is required")))
+    (bind ((tickets (search-tickets query)))
+      (json-response `(:tickets ,tickets)))))
 
 ;;; User handlers
 

@@ -22,9 +22,9 @@
    (:app-info db)))
 
 (rf/reg-sub
- :issues
+ :tickets
  (fn [db _]
-   (:issues db)))
+   (:tickets db)))
 
 (rf/reg-sub
  :users
@@ -37,9 +37,9 @@
    (:labels db)))
 
 (rf/reg-sub
- :current-issue
+ :current-ticket
  (fn [db _]
-   (:current-issue db)))
+   (:current-ticket db)))
 
 (rf/reg-sub
  :comments
@@ -67,10 +67,10 @@
    (:error db)))
 
 (rf/reg-sub
- :issues-by-status
+ :tickets-by-status
  (fn [db _]
-   (let [issues (:issues db)]
-     (->> issues
+   (let [tickets (:tickets db)]
+     (->> tickets
           (group-by :status)
           (into (sorted-map))))))
 

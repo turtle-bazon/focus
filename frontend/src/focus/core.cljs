@@ -17,8 +17,8 @@
 (secretary/defroute "/" []
   (rf/dispatch [:set-view :board]))
 
-(secretary/defroute "/issues/:id" [id]
-  (rf/dispatch [:fetch-issue-detail (js/parseInt id)])
+(secretary/defroute "/tickets/:id" [id]
+  (rf/dispatch [:fetch-ticket-detail (js/parseInt id)])
   (rf/dispatch [:set-view :detail]))
 
 (defn mount-root []
@@ -38,7 +38,7 @@
   (mount-root))
 
 (defn init-board []
-  (rf/dispatch [:fetch-issues {}])
+  (rf/dispatch [:fetch-tickets {}])
   (rf/dispatch [:fetch-users])
   (rf/dispatch [:fetch-labels])
   (ws/connect))

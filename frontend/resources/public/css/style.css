@@ -125,7 +125,7 @@ body {
   gap: 12px;
 }
 
-.issue-card {
+.ticket-card {
   background-color: #0f172a;
   border: 1px solid #334155;
   border-radius: 8px;
@@ -134,26 +134,26 @@ body {
   transition: all 0.2s;
 }
 
-.issue-card:hover {
+.ticket-card:hover {
   border-color: #3b82f6;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.issue-card-header {
+.ticket-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
 }
 
-.issue-id {
+.ticket-id {
   color: #64748b;
   font-size: 12px;
   font-weight: 500;
 }
 
-.issue-priority {
+.ticket-priority {
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 11px;
@@ -162,14 +162,14 @@ body {
   color: white;
 }
 
-.issue-title {
+.ticket-title {
   font-size: 14px;
   font-weight: 500;
   margin-bottom: 8px;
   line-height: 1.4;
 }
 
-.issue-assignee {
+.ticket-assignee {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -319,13 +319,13 @@ body {
   cursor: pointer;
 }
 
-.issue-detail {
+.ticket-detail {
   padding: 24px;
   max-width: 800px;
   margin: 0 auto;
 }
 
-.issue-detail-header {
+.ticket-detail-header {
   margin-bottom: 24px;
 }
 
@@ -343,11 +343,11 @@ body {
   text-decoration: underline;
 }
 
-.issue-detail-header h1 {
+.ticket-detail-header h1 {
   font-size: 24px;
 }
 
-.issue-meta {
+.ticket-meta {
   display: flex;
   gap: 12px;
   margin-bottom: 24px;
@@ -393,16 +393,16 @@ body {
   color: #e2e8f0;
 }
 
-.issue-body {
+.ticket-body {
   margin-bottom: 32px;
   line-height: 1.6;
 }
 
-.issue-section {
+.ticket-section {
   margin-bottom: 32px;
 }
 
-.issue-section h3 {
+.ticket-section h3 {
   font-size: 16px;
   margin-bottom: 16px;
   padding-bottom: 8px;
@@ -630,12 +630,12 @@ body {
   position: relative;
 }
 
-.issue-card {
+.ticket-card {
   position: relative;
   transition: opacity 0.12s ease, box-shadow 0.12s ease;
 }
 
-.issue-card.drop-target-top::before {
+.ticket-card.drop-target-top::before {
   content: '';
   position: absolute;
   top: -32px;
@@ -649,7 +649,7 @@ body {
   z-index: 10;
 }
 
-.issue-card.drop-target-bottom::after {
+.ticket-card.drop-target-bottom::after {
   content: '';
   position: absolute;
   bottom: -32px;
@@ -663,7 +663,7 @@ body {
   z-index: 10;
 }
 
-.issue-card.dragging {
+.ticket-card.dragging {
   opacity: 0.3;
 }
 

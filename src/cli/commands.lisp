@@ -6,17 +6,17 @@
   "Create the list command."
   (clingon:make-command
    :name "list"
-   :description "List issues"
+   :description "List tickets"
    :handler (lambda (cmd)
               (bind ((status (clingon:getopt cmd :status))
                      (priority (clingon:getopt cmd :priority))
-                     (issues (list-issues :status status :priority priority)))
-                (iter (for issue in issues)
+                     (tickets (list-tickets :status status :priority priority)))
+                (iter (for ticket in tickets)
                   (format t "~a | ~a | ~a | ~a~%"
-                          (cdr (assoc :id issue))
-                          (cdr (assoc :title issue))
-                          (cdr (assoc :status issue))
-                          (cdr (assoc :priority issue))))))
+                          (cdr (assoc :id ticket))
+                          (cdr (assoc :title ticket))
+                          (cdr (assoc :status ticket))
+                          (cdr (assoc :priority ticket))))))
    :options (list (clingon:make-option :long "status"
                                        :description "Filter by status"
                                        :type :string)
@@ -28,24 +28,24 @@
   "Create the create command."
   (clingon:make-command
    :name "create"
-   :description "Create a new issue"
+   :description "Create a new ticket"
    :handler (lambda (cmd)
               (bind ((title (clingon:getopt cmd :title))
                      (description (clingon:getopt cmd :description))
                      (priority (clingon:getopt cmd :priority))
-                     (id (create-issue title
-                                      :description description
-                                      :priority priority)))
-                (format t "Created issue ~a~%" id)))
+                     (id (create-ticket title
+                                        :description description
+                                        :priority priority)))
+                (format t "Created ticket ~a~%" id)))
    :options (list (clingon:make-option :long "title"
-                                       :description "Issue title"
+                                       :description "Ticket title"
                                        :type :string
                                        :required t)
                   (clingon:make-option :long "description"
-                                       :description "Issue description"
+                                       :description "Ticket description"
                                        :type :string)
                   (clingon:make-option :long "priority"
-                                       :description "Issue priority"
+                                       :description "Ticket priority"
                                        :type :string
                                        :initial-value "medium"))))
 
@@ -53,17 +53,17 @@
   "Create the update command."
   (clingon:make-command
    :name "update"
-   :description "Update an issue"
+   :description "Update a ticket"
    :handler (lambda (cmd)
               (bind ((id (clingon:getopt cmd :id))
                      (status (clingon:getopt cmd :status))
                      (priority (clingon:getopt cmd :priority))
-                     (issue (update-issue id :status status :priority priority)))
-                (if issue
-                    (format t "Updated issue ~a~%" id)
-                    (format t "Issue not found~%"))))
+                     (ticket (update-ticket id :status status :priority priority)))
+                (if ticket
+                    (format t "Updated ticket ~a~%" id)
+                    (format t "Ticket not found~%"))))
    :options (list (clingon:make-option :long "id"
-                                       :description "Issue ID"
+                                       :description "Ticket ID"
                                        :type :integer
                                        :required t)
                   (clingon:make-option :long "status"
@@ -77,13 +77,13 @@
   "Create the delete command."
   (clingon:make-command
    :name "delete"
-   :description "Delete an issue"
+   :description "Delete a ticket"
    :handler (lambda (cmd)
               (bind ((id (clingon:getopt cmd :id)))
-                (delete-issue id)
-                (format t "Deleted issue ~a~%" id)))
+                (delete-ticket id)
+                (format t "Deleted ticket ~a~%" id)))
    :options (list (clingon:make-option :long "id"
-                                       :description "Issue ID"
+                                       :description "Ticket ID"
                                        :type :integer
                                        :required t))))
 
@@ -91,7 +91,7 @@
   "Create the root CLI command."
   (clingon:make-command
    :name "focus"
-   :description "Issue tracker CLI"
+   :description "Ticket tracker CLI"
    :subcommands (list (make-list-command)
                       (make-create-command)
                       (make-update-command)

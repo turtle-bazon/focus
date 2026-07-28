@@ -30,7 +30,7 @@
        [:h1.landing-title (or (:name app-info) "Focus")]
        [:p.landing-description
         (or (:description app-info)
-            "A Kanban-style issue tracker for teams.")]
+            "A Kanban-style ticket tracker for teams.")]
        (if (:oauth2_configured app-info)
          [:a.login-button {:href "/api/auth/login"}
           "Sign in with Mattermost"]
@@ -53,13 +53,13 @@
       {:style {:color color}}
       priority]]))
 
-(defn draggable-card [issue on-card-over card-idx drag-idx set-drag-idx!]
+(defn draggable-card [ticket on-card-over card-idx drag-idx set-drag-idx!]
   (let [card-ref (r/atom nil)
         dragging (r/atom false)]
-    (fn [issue on-card-over card-idx drag-idx set-drag-idx!]
+    (fn [ticket on-card-over card-idx drag-idx set-drag-idx!]
       (let [show-top (and drag-idx (= drag-idx card-idx) (not @dragging))
             show-bottom (and drag-idx (= drag-idx (inc card-idx)) (not @dragging))]
-        [:div.issue-card
+        [:div.ticket-card
          {:ref #(reset! card-ref %)
           :draggable true
           :class (str (when @dragging " dragging")
@@ -67,7 +67,7 @@
                       (when show-bottom " drop-target-bottom"))
           :on-drag-start (fn [e]
                            (reset! dragging true)
-                           (.setData (.-dataTransfer e) "text/plain" (str (:id issue)))
+                           (.setData (.-dataTransfer e) "text/plain" (str (:id ticket)))
                            (set! (.. e -dataTransfer -effectAllowed) "move")
                            (when-let [el @card-ref]
                              (let [ghost (.cloneNode el true)]
@@ -86,7 +86,7 @@
           :on-drag-end (fn [_]
                          (reset! dragging false)
                          (set-drag-idx! nil))
-          :on-click #(js/navigateTo (str "/issues/" (:id issue)))
+          :on-click #(js/navigateTo (str "/tickets/" (:id ticket)))
           :on-mouse-down (fn [e]
                            (.preventDefault e))
           :on-drag-over (fn [e]
@@ -97,27 +97,27 @@
                                 y (- (.-clientY e) (.-top rect))
                                 h (.-height rect)]
                             (on-card-over (if (< y (/ h 2)) card-idx (inc card-idx)))))}
-         [:div.issue-card-header
-          [:span.issue-id (str "#" (:id issue))]
-          [:span.issue-priority
-           {:style {:background-color (get-priority-color (:priority issue))}}
-           (:priority issue)]]
-         [:h3.issue-title (:title issue)]
-         (when (and (:assignee_id issue)
-                    (not= (:assignee_id issue) "null")
-                    (not (nil? (:assignee_id issue))))
-           [:div.issue-assignee
+         [:div.ticket-card-header
+          [:span.ticket-id (str "#" (:id ticket))]
+          [:span.ticket-priority
+           {:style {:background-color (get-priority-color (:priority ticket))}}
+           (:priority ticket)]]
+         [:h3.ticket-title (:title ticket)]
+         (when (and (:assignee_id ticket)
+                    (not= (:assignee_id ticket) "null")
+                    (not (nil? (:assignee_id ticket))))
+           [:div.ticket-assignee
             [:span.avatar
              (let [user-map @(rf/subscribe [:user-map])
-                   user (get user-map (js/parseInt (:assignee_id issue)))]
-               (or (:username user) (str "User " (:assignee_id issue))))]])]))))
+                   user (get user-map (js/parseInt (:assignee_id ticket)))]
+               (or (:username user) (str "User " (:assignee_id ticket))))]])]))))
 
-(defn priority-group [status-id priority issues]
+(defn priority-group [status-id priority tickets]
   (let [drag-idx (r/atom nil)
         set-drag-idx! (fn [idx] (reset! drag-idx idx))
         group-ref (r/atom nil)]
-    (fn [status-id priority issues]
-      (let [show-end (and @drag-idx (= @drag-idx (count issues)))]
+    (fn [status-id priority tickets]
+      (let [show-end (and @drag-idx (= @drag-idx (count tickets)))]
         [:div.priority-group
          {:ref #(reset! group-ref %)
           :on-drag-over (fn [e]
@@ -136,7 +136,7 @@
                                   (if (< y (+ card-top (/ card-h 2)))
                                     (reset! drag-idx i)
                                     (recur (inc i) (rest cs))))
-                                (reset! drag-idx (count issues))))))
+                                (reset! drag-idx (count tickets))))))
           :on-drag-leave (fn [e]
                            (let [related (.. e -relatedTarget)]
                              (when-not (and related (.contains @group-ref related))
@@ -144,48 +144,48 @@
           :on-drop (fn [e]
                      (.preventDefault e)
                      (.stopPropagation e)
-                     (let [issue-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
-                           raw-idx (or @drag-idx (count issues))
+                     (let [ticket-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
+                           raw-idx (or @drag-idx (count tickets))
                            dragged-pos (first (keep-indexed
-                                               (fn [i iss] (when (= (:id iss) issue-id) i))
-                                               issues))
+                                               (fn [i t] (when (= (:id t) ticket-id) i))
+                                               tickets))
                            target-idx (if (and dragged-pos (< dragged-pos raw-idx))
                                         (dec raw-idx)
                                         raw-idx)]
                        (reset! drag-idx nil)
-                       (rf/dispatch [:reorder-issue issue-id status-id priority target-idx])))}
+                       (rf/dispatch [:reorder-ticket ticket-id status-id priority target-idx])))}
          [priority-group-header priority]
          (doall
           (map-indexed
-           (fn [idx issue]
-             ^{:key (:id issue)}
-             [draggable-card issue set-drag-idx! idx @drag-idx set-drag-idx!])
-           issues))
+           (fn [idx ticket]
+             ^{:key (:id ticket)}
+             [draggable-card ticket set-drag-idx! idx @drag-idx set-drag-idx!])
+           tickets))
          (when show-end
            [:div.drop-line-active])]))))
 
 (def all-priorities ["high" "medium" "low"])
 
 (defn board-column [status]
-  (let [issues-by-status @(rf/subscribe [:issues-by-status])
-        issues (get issues-by-status (:id status) [])
-        by-priority (into {} (map (fn [[p iss]] [p iss]) (group-by :priority issues)))]
+  (let [tickets-by-status @(rf/subscribe [:tickets-by-status])
+        tickets (get tickets-by-status (:id status) [])
+        by-priority (into {} (map (fn [[p t]] [p t]) (group-by :priority tickets)))]
     [:div.board-column
      {:on-drag-over (fn [e]
                       (.preventDefault e)
                       (set! (.. e -dataTransfer -dropEffect) "move"))
       :on-drop (fn [e]
                  (.preventDefault e)
-                 (let [issue-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
-                       dragged (first (filter #(= (:id %) issue-id) issues))
+                 (let [ticket-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
+                       dragged (first (filter #(= (:id %) ticket-id) tickets))
                        priority (or (:priority dragged) "medium")
-                       group-issues (get by-priority priority [])
-                       target-idx (count group-issues)]
-                   (rf/dispatch [:reorder-issue issue-id (:id status) priority target-idx])))}
+                       group-tickets (get by-priority priority [])
+                       target-idx (count group-tickets)]
+                   (rf/dispatch [:reorder-ticket ticket-id (:id status) priority target-idx])))}
      [:div.column-header
       {:style {:border-bottom-color (:color status)}}
       [:span.column-title (:name status)]
-      [:span.column-count (count issues)]]
+      [:span.column-count (count tickets)]]
      [:div.column-cards
       (doall
        (for [priority (sort-by #(get priority-order % 1) all-priorities)]
@@ -198,7 +198,7 @@
      ^{:key (:id status)}
      [board-column status])])
 
-(defn create-issue-modal []
+(defn create-ticket-modal []
   (let [show-modal (r/atom false)
         title (r/atom "")
         description (r/atom "")
@@ -208,24 +208,24 @@
       [:div
        [:button.create-button
         {:on-click #(reset! show-modal true)}
-        "New Issue"]
+        "New Ticket"]
        (when @show-modal
          [:div.modal-overlay
           {:on-click #(reset! show-modal false)}
           [:div.modal
            {:on-click #(.stopPropagation %)}
-           [:h2 "Create Issue"]
+            [:h2 "Create Ticket"]
            [:div.form-group
             [:label "Title"]
             [:input {:type "text"
                      :value @title
                      :on-change #(reset! title (-> % .-target .-value))
-                     :placeholder "Issue title"}]]
+                      :placeholder "Ticket title"}]]
            [:div.form-group
             [:label "Description"]
             [:textarea {:value @description
                        :on-change #(reset! description (-> % .-target .-value))
-                       :placeholder "Describe the issue..."}]]
+                        :placeholder "Describe the ticket..."}]]
            [:div.form-group
             [:label "Priority"]
             [:select {:value @priority
@@ -240,7 +240,7 @@
             [:button.submit-button
              {:on-click (fn []
                          (when (seq @title)
-                           (rf/dispatch [:create-issue
+                            (rf/dispatch [:create-ticket
                                         {:title @title
                                          :description @description
                                          :priority @priority}])
@@ -250,44 +250,44 @@
                            (reset! priority "medium")))}
              "Create"]]]])])))
 
-(defn issue-detail []
-  (let [issue @(rf/subscribe [:current-issue])
+(defn ticket-detail []
+  (let [ticket @(rf/subscribe [:current-ticket])
         comments @(rf/subscribe [:comments])
         activity @(rf/subscribe [:activity])
         users @(rf/subscribe [:users])
         new-comment (r/atom "")]
-    (if issue
-      [:div.issue-detail
-       [:div.issue-detail-header
+    (if ticket
+      [:div.ticket-detail
+       [:div.ticket-detail-header
         [:button.back-button
          {:on-click #(js/navigateTo "/")}
          "← Back to Board"]
-        [:h1 (str "#" (:id issue) " " (:title issue))]]
-        [:div.issue-meta
+        [:h1 (str "#" (:id ticket) " " (:title ticket))]]
+        [:div.ticket-meta
          [:span.status-badge
-          {:style {:background-color (get-status-color (:status issue))}}
-          (:status issue)]
+          {:style {:background-color (get-status-color (:status ticket))}}
+          (:status ticket)]
          [:select.priority-select
-          {:value (:priority issue)
-           :style {:background-color (get-priority-color (:priority issue))}
+          {:value (:priority ticket)
+           :style {:background-color (get-priority-color (:priority ticket))}
            :on-change (fn [e]
-                        (rf/dispatch [:reorder-issue
-                                      (:id issue)
-                                      (:status issue)
+                        (rf/dispatch [:reorder-ticket
+                                      (:id ticket)
+                                      (:status ticket)
                                       (-> e .-target .-value)
-                                      (:position issue)]))}
+                                      (:position ticket)]))}
           [:option {:value "low"} "low"]
           [:option {:value "medium"} "medium"]
           [:option {:value "high"} "high"]]
-        (when (and (:assignee_id issue)
-                   (not= (:assignee_id issue) "null")
-                   (not (nil? (:assignee_id issue))))
+        (when (and (:assignee_id ticket)
+                   (not= (:assignee_id ticket) "null")
+                   (not (nil? (:assignee_id ticket))))
           [:span.assignee-badge
-           (let [user (first (filter #(= (:id %) (js/parseInt (:assignee_id issue))) users))]
-             (or (:username user) (str "User " (:assignee_id issue))))])]
-       [:div.issue-body
-        [:p (:description issue)]]
-       [:div.issue-section
+           (let [user (first (filter #(= (:id %) (js/parseInt (:assignee_id ticket))) users))]
+             (or (:username user) (str "User " (:assignee_id ticket))))])]
+       [:div.ticket-body
+        [:p (:description ticket)]]
+       [:div.ticket-section
         [:h3 "Comments"]
         [:div.comments-list
          (for [comment comments]
@@ -305,12 +305,12 @@
           {:on-click (fn []
                       (when (seq @new-comment)
                         (rf/dispatch [:create-comment
-                                     (:id issue)
+                                     (:id ticket)
                                      {:user_id 1
                                       :body @new-comment}])
                         (reset! new-comment "")))}
           "Add Comment"]]]
-       [:div.issue-section
+       [:div.ticket-section
         [:h3 "Activity"]
         [:div.activity-list
          (for [item activity]
@@ -342,10 +342,10 @@
                                 (reset! debounce-timer
                                         (js/setTimeout
                                          (fn []
-                                           (rf/dispatch [:search-issues v])
+                                           (rf/dispatch [:search-tickets v])
                                            (reset! debounce-timer nil))
                                          300))))
-                 :placeholder "Search issues..."}]]))))
+                                   :placeholder "Search tickets..."}]]))))
 
 (defn nav-bar []
   (let [current-view @(rf/subscribe [:current-view])
@@ -359,7 +359,7 @@
       [:a {:class (when (= current-view :list) "active")
            :on-click #(js/navigateTo "/")}
        "List"]
-      [create-issue-modal]]
+      [create-ticket-modal]]
      [:div.nav-auth
       (when-let [user (get auth :user)]
         [:span.user-name (:username user)])
@@ -376,7 +376,7 @@
      (case current-view
        :board [board-view]
        :list [board-view]
-       :detail [issue-detail]
+       :detail [ticket-detail]
        [board-view])]))
 
 (defn main-panel []

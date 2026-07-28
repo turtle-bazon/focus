@@ -34,24 +34,24 @@
   "Delete label by ID."
   (db-execute "DELETE FROM labels WHERE id = $1" id))
 
-(defun add-label-to-issue (issue-id label-id)
-  "Add a label to an issue."
+(defun add-label-to-ticket (ticket-id label-id)
+  "Add a label to a ticket."
   (db-execute
-   "INSERT INTO issue_labels (issue_id, label_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"
-   issue-id label-id))
+   "INSERT INTO ticket_labels (ticket_id, label_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"
+   ticket-id label-id))
 
-(defun remove-label-from-issue (issue-id label-id)
-  "Remove a label from an issue."
+(defun remove-label-from-ticket (ticket-id label-id)
+  "Remove a label from a ticket."
   (db-execute
-   "DELETE FROM issue_labels WHERE issue_id = $1 AND label_id = $2"
-   issue-id label-id))
+   "DELETE FROM ticket_labels WHERE ticket_id = $1 AND label_id = $2"
+   ticket-id label-id))
 
-(defun get-issue-labels (issue-id)
-  "Get all labels for an issue."
+(defun get-ticket-labels (ticket-id)
+  "Get all labels for a ticket."
   (pg-query-params
    "SELECT l.id, l.name, l.color
     FROM labels l
-    JOIN issue_labels il ON l.id = il.label_id
-    WHERE il.issue_id = $1
+    JOIN ticket_labels tl ON l.id = tl.label_id
+    WHERE tl.ticket_id = $1
     ORDER BY l.name"
-   (list issue-id)))
+   (list ticket-id)))

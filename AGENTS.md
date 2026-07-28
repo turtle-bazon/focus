@@ -2,7 +2,7 @@
 
 ## Project
 
-Issue tracker. Create, manage, and track issues with labels, assignees, and status.
+Ticket tracker. Create, manage, and track tickets with labels, assignees, and status.
 
 ## Tech Stack
 
@@ -40,13 +40,14 @@ CREATE TABLE users (
     created_at TIMESTAMP DEFAULT now()
 );
 
-CREATE TABLE issues (
+CREATE TABLE tickets (
     id SERIAL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     description TEXT,
     status VARCHAR(20) DEFAULT 'open',
     priority VARCHAR(10) DEFAULT 'medium',
     assignee_id INTEGER REFERENCES users(id),
+    position INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT now(),
     updated_at TIMESTAMP DEFAULT now()
 );
@@ -57,15 +58,15 @@ CREATE TABLE labels (
     color VARCHAR(7) DEFAULT '#3498db'
 );
 
-CREATE TABLE issue_labels (
-    issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
+CREATE TABLE ticket_labels (
+    ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
     label_id INTEGER REFERENCES labels(id) ON DELETE CASCADE,
-    PRIMARY KEY (issue_id, label_id)
+    PRIMARY KEY (ticket_id, label_id)
 );
 
 CREATE TABLE comments (
     id SERIAL PRIMARY KEY,
-    issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
+    ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
     user_id INTEGER REFERENCES users(id),
     body TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT now(),
@@ -74,7 +75,7 @@ CREATE TABLE comments (
 
 CREATE TABLE activity (
     id SERIAL PRIMARY KEY,
-    issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
+    ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
     user_id INTEGER REFERENCES users(id),
     action VARCHAR(50) NOT NULL,
     details JSONB,
@@ -83,7 +84,7 @@ CREATE TABLE activity (
 
 CREATE TABLE attachments (
     id SERIAL PRIMARY KEY,
-    issue_id INTEGER REFERENCES issues(id) ON DELETE CASCADE,
+    ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
     filename VARCHAR(255) NOT NULL,
     content_type VARCHAR(100),
     size INTEGER,
@@ -105,43 +106,43 @@ CREATE TABLE webhooks (
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | /api/issues | List issues (paginated, filterable, sortable) |
-| GET | /api/issues/:id | Get issue by ID |
-| POST | /api/issues | Create new issue |
-| PUT | /api/issues/:id | Update issue |
-| DELETE | /api/issues/:id | Delete issue |
-| GET | /api/issues/:id/comments | List comments on issue |
-| POST | /api/issues/:id/comments | Add comment to issue |
-| GET | /api/issues/:id/activity | List activity for issue |
-| GET | /api/issues/search | Full-text search issues |
+| GET | /api/tickets | List tickets (paginated, filterable, sortable) |
+| GET | /api/tickets/:id | Get ticket by ID |
+| POST | /api/tickets | Create new ticket |
+| PUT | /api/tickets/:id | Update ticket |
+| DELETE | /api/tickets/:id | Delete ticket |
+| GET | /api/tickets/:id/comments | List comments on ticket |
+| POST | /api/tickets/:id/comments | Add comment to ticket |
+| GET | /api/tickets/:id/activity | List activity for ticket |
+| GET | /api/tickets/search | Full-text search tickets |
 | GET | /api/users | List all users |
 | POST | /api/users | Create user |
 | GET | /api/labels | List all labels |
 | POST | /api/labels | Create label |
 | GET | /api/attachments/:id | Get attachment |
-| POST | /api/issues/:id/attachments | Upload attachment |
+| POST | /api/tickets/:id/attachments | Upload attachment |
 | GET | /api/webhooks | List webhooks |
 | POST | /api/webhooks | Create webhook |
 
 ## CLI Commands
 
 ```bash
-# List issues
-focus-cli list [--status open] [--priority high]
+# List tickets
+focus list [--status open] [--priority high]
 
-# Create issue
-focus-cli create --title "Bug report" --description "Details..."
+# Create ticket
+focus create --title "Bug report" --description "Details..."
 
-# Update issue
-focus-cli update 123 --status closed --priority low
+# Update ticket
+focus update 123 --status closed --priority low
 
-# Delete issue
-focus-cli delete 123
+# Delete ticket
+focus delete 123
 ```
 
 ## Frontend
 
-Design: **simple but sexy** — clean lines, minimal chrome, good typography. Not generic Bootstrap. Think: an issue tracker that looks premium.
+Design: **simple but sexy** — clean lines, minimal chrome, good typography. Not generic Bootstrap. Think: a ticket tracker that looks premium.
 
 ClojureScript + Reagent in `frontend/`:
 
@@ -157,7 +158,7 @@ frontend/
         └── api.cljs          # HTTP client for REST API
 ```
 
-Auto updates via WebSocket — issues, comments, and activity update in real-time without page refresh.
+Auto updates via WebSocket — tickets, comments, and activity update in real-time without page refresh.
 
 Kanban board view with drag-and-drop between columns: `Backlog → Open → In Progress → Review → Done`. Cards show tags (labels) with colors for quick visual identification.
 
@@ -177,7 +178,10 @@ focus/
 │   ├── 0006-comments-table.{up,down}.sql
 │   ├── 0007-activity-table.{up,down}.sql
 │   ├── 0008-attachments-table.{up,down}.sql
-│   └── 0009-webhooks-table.{up,down}.sql
+│   ├── 0009-webhooks-table.{up,down}.sql
+│   ├── 0010-sessions-table.{up,down}.sql
+│   ├── 0011-issues-position.{up,down}.sql
+│   └── 0012-rename-issues-to-tickets.{up,down}.sql
 ├── src/
 │   ├── package.lisp
 │   ├── config.lisp
@@ -186,7 +190,7 @@ focus/
 │   ├── nrepl.lisp
 │   ├── models/
 │   │   ├── user.lisp
-│   │   ├── issue.lisp
+│   │   ├── ticket.lisp
 │   │   ├── label.lisp
 │   │   ├── comment.lisp
 │   │   ├── activity.lisp
@@ -232,8 +236,8 @@ make generate-migrations  # Regenerate migrations.lisp from SQL files
 (defsystem :focus
   :name "focus"
   :license "TBD"
-  :version "0.1.0"
-  :description "Issue tracker"
+  :version "0.0.1.0"
+  :description "Ticket tracker"
   :depends-on (#:clack
                #:clack-handler-wookie
                #:websocket-driver
@@ -260,7 +264,7 @@ make generate-migrations  # Regenerate migrations.lisp from SQL files
                   (:file "nrepl")
                   (:module "models"
                    :components ((:file "user")
-                                (:file "issue")
+                                 (:file "ticket")
                                 (:file "label")
                                 (:file "comment")
                                 (:file "activity")

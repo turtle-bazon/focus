@@ -2,28 +2,28 @@
 
 ;;; Comment model
 
-(defun create-comment (issue-id user-id body)
+(defun create-comment (ticket-id user-id body)
   "Create a new comment. Returns the comment ID."
   (db-query
-   "INSERT INTO comments (issue_id, user_id, body) VALUES ($1, $2, $3) RETURNING id"
-   issue-id user-id body
+   "INSERT INTO comments (ticket_id, user_id, body) VALUES ($1, $2, $3) RETURNING id"
+   ticket-id user-id body
    :single))
 
 (defun get-comment-by-id (id)
   "Get comment by ID. Returns plist or nil."
   (let ((results (db-query
-                  "SELECT id, issue_id, user_id, body, created_at, updated_at
+                  "SELECT id, ticket_id, user_id, body, created_at, updated_at
                    FROM comments WHERE id = $1"
                   id :alists)))
     (when results (alist-to-plist (car results)))))
 
-(defun list-comments (issue-id)
-  "List all comments for an issue."
+(defun list-comments (ticket-id)
+  "List all comments for a ticket."
   (pg-query-params
-   "SELECT id, issue_id, user_id, body, created_at, updated_at
-    FROM comments WHERE issue_id = $1
+   "SELECT id, ticket_id, user_id, body, created_at, updated_at
+    FROM comments WHERE ticket_id = $1
     ORDER BY created_at ASC"
-   (list issue-id)))
+   (list ticket-id)))
 
 (defun update-comment (id &key body)
   "Update comment body. Returns the updated comment."

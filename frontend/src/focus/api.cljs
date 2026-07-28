@@ -41,23 +41,23 @@
 (defn auth-logout [on-success on-error]
   (post "/auth/logout" nil on-success on-error))
 
-(defn fetch-issues [params on-success on-error]
-  (get "/issues" params on-success on-error))
+(defn fetch-tickets [params on-success on-error]
+  (get "/tickets" params on-success on-error))
 
-(defn fetch-issue [id on-success on-error]
-  (get (str "/issues/" id) nil on-success on-error))
+(defn fetch-ticket [id on-success on-error]
+  (get (str "/tickets/" id) nil on-success on-error))
 
-(defn create-issue [data on-success on-error]
-  (post "/issues" data on-success on-error))
+(defn create-ticket [data on-success on-error]
+  (post "/tickets" data on-success on-error))
 
-(defn update-issue [id data on-success on-error]
-  (put (str "/issues/" id) data on-success on-error))
+(defn update-ticket [id data on-success on-error]
+  (put (str "/tickets/" id) data on-success on-error))
 
-(defn delete-issue [id on-success on-error]
-  (delete (str "/issues/" id) on-success on-error))
+(defn delete-ticket [id on-success on-error]
+  (delete (str "/tickets/" id) on-success on-error))
 
-(defn search-issues [query on-success on-error]
-  (get "/issues/search" {:q query} on-success on-error))
+(defn search-tickets [query on-success on-error]
+  (get "/tickets/search" {:q query} on-success on-error))
 
 (defn fetch-users [on-success on-error]
   (get "/users" nil on-success on-error))
@@ -71,14 +71,14 @@
 (defn create-label [data on-success on-error]
   (post "/labels" data on-success on-error))
 
-(defn fetch-comments [issue-id on-success on-error]
-  (get (str "/issues/" issue-id "/comments") nil on-success on-error))
+(defn fetch-comments [ticket-id on-success on-error]
+  (get (str "/tickets/" ticket-id "/comments") nil on-success on-error))
 
-(defn create-comment [issue-id data on-success on-error]
-  (post (str "/issues/" issue-id "/comments") data on-success on-error))
+(defn create-comment [ticket-id data on-success on-error]
+  (post (str "/tickets/" ticket-id "/comments") data on-success on-error))
 
-(defn fetch-activity [issue-id on-success on-error]
-  (get (str "/issues/" issue-id "/activity") nil on-success on-error))
+(defn fetch-activity [ticket-id on-success on-error]
+  (get (str "/tickets/" ticket-id "/activity") nil on-success on-error))
 
 (defn fetch-webhooks [on-success on-error]
   (get "/webhooks" nil on-success on-error))

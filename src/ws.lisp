@@ -26,29 +26,29 @@
                    (ws-remove-connection id))))
              *ws-connections*)))
 
-(defun ws-broadcast-issue-update (issue)
-  "Broadcast an issue update to all clients."
+(defun ws-broadcast-ticket-update (ticket)
+  "Broadcast a ticket update to all clients."
   (ws-broadcast (cl-json:encode-json-to-string
-                 `((:type . "issue-update")
-                   (:data . ,(plist-to-json issue))))))
+                 `((:type . "ticket-update")
+                   (:data . ,(plist-to-json ticket))))))
 
-(defun ws-broadcast-issue-created (issue)
-  "Broadcast a new issue to all clients."
+(defun ws-broadcast-ticket-created (ticket)
+  "Broadcast a new ticket to all clients."
   (ws-broadcast (cl-json:encode-json-to-string
-                 `((:type . "issue-created")
-                   (:data . ,(plist-to-json issue))))))
+                 `((:type . "ticket-created")
+                   (:data . ,(plist-to-json ticket))))))
 
-(defun ws-broadcast-issue-deleted (issue-id)
-  "Broadcast issue deletion to all clients."
+(defun ws-broadcast-ticket-deleted (ticket-id)
+  "Broadcast ticket deletion to all clients."
   (ws-broadcast (cl-json:encode-json-to-string
-                 `((:type . "issue-deleted")
-                   (:id . ,issue-id)))))
+                 `((:type . "ticket-deleted")
+                   (:id . ,ticket-id)))))
 
-(defun ws-broadcast-comment-created (comment issue-id)
+(defun ws-broadcast-comment-created (comment ticket-id)
   "Broadcast a new comment to all clients."
   (ws-broadcast (cl-json:encode-json-to-string
                  `((:type . "comment-created")
-                   (:issue-id . ,issue-id)
+                   (:ticket-id . ,ticket-id)
                    (:data . ,(plist-to-json comment))))))
 
 ;;; WebSocket upgrade handler

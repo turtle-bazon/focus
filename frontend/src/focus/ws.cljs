@@ -9,10 +9,10 @@
   (let [data (-> event .-data js/JSON.parse (js->clj :keywordize-keys true))
         msg-type (keyword (:type data))]
     (case msg-type
-      :issue-update (rf/dispatch [:ws-update-issue (:data data)])
-      :issue-created (rf/dispatch [:add-issue (:data data)])
-      :issue-deleted (rf/dispatch [:remove-issue (:id data)])
-      :comment-created (rf/dispatch [:add-comment (:data data) (:issue-id data)])
+      :ticket-update (rf/dispatch [:ws-update-ticket (:data data)])
+      :ticket-created (rf/dispatch [:add-ticket (:data data)])
+      :ticket-deleted (rf/dispatch [:remove-ticket (:id data)])
+      :comment-created (rf/dispatch [:add-comment (:data data) (:ticket-id data)])
       (println "Unknown message type:" msg-type))))
 
 (defn on-open [_]

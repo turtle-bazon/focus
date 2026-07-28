@@ -5,13 +5,13 @@
 (rf/reg-event-db
  :initialize-db
  (fn [_ _]
-   {:current-view :landing
+   {     :current-view :landing
     :auth nil
     :app-info nil
-    :issues []
+    :tickets []
     :users []
     :labels []
-    :current-issue nil
+    :current-ticket nil
     :comments []
     :activity []
     :search-query ""
@@ -61,7 +61,7 @@
             :auth response
             :loading false
             :current-view (if authenticated
-                            (if (re-matches #"/issues/\d+" path) :detail :board)
+                            (if (re-matches #"/tickets/\d+" path) :detail :board)
                             :landing)))))
 
 (rf/reg-event-fx
@@ -85,108 +85,108 @@
    (assoc db :error nil)))
 
 (rf/reg-event-fx
- :fetch-issues
+ :fetch-tickets
  (fn [{:keys [db]} [_ params]]
-   (api/fetch-issues params
+   (api/fetch-tickets params
     (fn [response]
-      (rf/dispatch [:set-issues (:issues response)]))
+      (rf/dispatch [:set-tickets (:tickets response)]))
     (fn [error]
-      (rf/dispatch [:set-error (str "Failed to fetch issues: " error)])))
+      (rf/dispatch [:set-error (str "Failed to fetch tickets: " error)])))
    {:db db}))
 
 (rf/reg-event-db
- :set-issues
- (fn [db [_ issues]]
-   (assoc db :issues issues :loading false :error nil)))
+ :set-tickets
+ (fn [db [_ tickets]]
+   (assoc db :tickets tickets :loading false :error nil)))
 
 (rf/reg-event-fx
- :create-issue
+ :create-ticket
  (fn [{:keys [db]} [_ data]]
-   (api/create-issue data
+   (api/create-ticket data
     (fn [response]
-      (rf/dispatch [:add-issue {:id (:id response)
+      (rf/dispatch [:add-ticket {:id (:id response)
                                 :title (:title data)
                                 :description (:description data)
                                 :priority (:priority data)
                                 :status "open"}]))
     (fn [error]
-      (rf/dispatch [:set-error (str "Failed to create issue: " error)])))
+      (rf/dispatch [:set-error (str "Failed to create ticket: " error)])))
    {:db db}))
 
 (rf/reg-event-fx
- :update-issue
+ :update-ticket
  (fn [{:keys [db]} [_ id data]]
-   (api/update-issue id data
+   (api/update-ticket id data
     (fn [response]
-      (rf/dispatch [:fetch-issues {}]))
+      (rf/dispatch [:fetch-tickets {}]))
     (fn [error]
-      (rf/dispatch [:set-error (str "Failed to update issue: " error)])))
+      (rf/dispatch [:set-error (str "Failed to update ticket: " error)])))
    {:db (assoc db :loading true)}))
 
 (rf/reg-event-fx
- :update-issue-status
+ :update-ticket-status
  (fn [{:keys [db]} [_ id status]]
-   (let [issues (:issues db)
+   (let [tickets (:tickets db)
          updated (mapv (fn [i]
                          (if (= (:id i) id)
                              (assoc i :status status)
                              i))
-                       issues)]
-     (api/update-issue id {:status status}
+                       tickets)]
+     (api/update-ticket id {:status status}
       (fn [_]) ;; already updated locally, ignore response
       (fn [error]
-        (rf/dispatch [:set-error (str "Failed to update issue: " error)])
-        (rf/dispatch [:fetch-issues {}])))
-     {:db (assoc db :issues updated)})))
+        (rf/dispatch [:set-error (str "Failed to update ticket: " error)])
+        (rf/dispatch [:fetch-tickets {}])))
+     {:db (assoc db :tickets updated)})))
 
 (rf/reg-event-fx
- :reorder-issue
+ :reorder-ticket
  (fn [{:keys [db]} [_ id status priority position]]
-   (let [issues (:issues db)
-         moved (first (filter #(= (:id %) id) issues))
+   (let [tickets (:tickets db)
+         moved (first (filter #(= (:id %) id) tickets))
          moved-with-status (assoc moved :status status :priority priority)
-         without (vec (remove #(= (:id %) id) issues))
+         without (vec (remove #(= (:id %) id) tickets))
          same-group (filter #(and (= (:status %) status) (= (:priority %) priority)) without)
          other (vec (remove #(and (= (:status %) status) (= (:priority %) priority)) without))
          before (vec (take position same-group))
          after (vec (drop position same-group))
-         reindexed-group (vec (map-indexed (fn [idx issue]
-                                             (assoc issue :position idx))
+         reindexed-group (vec (map-indexed (fn [idx ticket]
+                                             (assoc ticket :position idx))
                                            (concat before [moved-with-status] after)))
-         all-issues (concat other reindexed-group)
-         current-issue (:current-issue db)
-         new-current (when (and current-issue (= (:id current-issue) id))
-                       (assoc current-issue :status status :priority priority))]
-     (api/update-issue id {:status status :priority priority :position position}
+         all-tickets (concat other reindexed-group)
+         current-ticket (:current-ticket db)
+         new-current (when (and current-ticket (= (:id current-ticket) id))
+                       (assoc current-ticket :status status :priority priority))]
+     (api/update-ticket id {:status status :priority priority :position position}
       (fn [_])
       (fn [error]
-        (rf/dispatch [:set-error (str "Failed to reorder issue: " error)])
-        (rf/dispatch [:fetch-issues {}])))
+        (rf/dispatch [:set-error (str "Failed to reorder ticket: " error)])
+        (rf/dispatch [:fetch-tickets {}])))
      {:db (assoc db
-                 :issues (vec all-issues)
-                 :current-issue (or new-current current-issue))})))
+                 :tickets (vec all-tickets)
+                 :current-ticket (or new-current current-ticket))})))
 
 (rf/reg-event-fx
- :delete-issue
+ :delete-ticket
  (fn [{:keys [db]} [_ id]]
-   (api/delete-issue id
+   (api/delete-ticket id
     (fn [response]
-      (rf/dispatch [:fetch-issues {}]))
+      (rf/dispatch [:fetch-tickets {}]))
     (fn [error]
-      (rf/dispatch [:set-error (str "Failed to delete issue: " error)])))
+      (rf/dispatch [:set-error (str "Failed to delete ticket: " error)])))
    {:db (assoc db :loading true)}))
 
 (rf/reg-event-fx
- :search-issues
+ :search-tickets
  (fn [{:keys [db]} [_ query]]
    (if (empty? query)
      (do
-       (rf/dispatch [:fetch-issues {}])
+       (rf/dispatch [:fetch-tickets {}])
        {:db (assoc db :search-query "")})
      (do
-       (api/search-issues query
+       (api/search-tickets query
         (fn [response]
-          (rf/dispatch [:set-issues (:issues response)]))
+          (rf/dispatch [:set-tickets (:tickets response)]))
         (fn [error]
           (rf/dispatch [:set-error (str "Failed to search: " error)])))
        {:db (assoc db :search-query query)}))))
@@ -227,13 +227,13 @@
    (assoc db :labels labels)))
 
 (rf/reg-event-fx
- :fetch-issue-detail
+ :fetch-ticket-detail
  (fn [{:keys [db]} [_ id]]
-   (api/fetch-issue id
+   (api/fetch-ticket id
     (fn [response]
-      (rf/dispatch [:set-current-issue response]))
+      (rf/dispatch [:set-current-ticket response]))
     (fn [error]
-      (rf/dispatch [:set-error (str "Failed to fetch issue: " error)])))
+      (rf/dispatch [:set-error (str "Failed to fetch ticket: " error)])))
    (api/fetch-comments id
     (fn [response]
       (rf/dispatch [:set-comments (:comments response)]))
@@ -244,12 +244,12 @@
       (rf/dispatch [:set-activity (:activity response)]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to fetch activity: " error)])))
-   {:db (assoc db :current-issue nil :comments [] :activity [])}))
+   {:db (assoc db :current-ticket nil :comments [] :activity [])}))
 
 (rf/reg-event-db
- :set-current-issue
- (fn [db [_ issue]]
-   (assoc db :current-issue issue)))
+ :set-current-ticket
+ (fn [db [_ ticket]]
+   (assoc db :current-ticket ticket)))
 
 (rf/reg-event-db
  :set-comments
@@ -263,42 +263,42 @@
 
 (rf/reg-event-fx
  :create-comment
- (fn [{:keys [db]} [_ issue-id data]]
-   (api/create-comment issue-id data
+ (fn [{:keys [db]} [_ ticket-id data]]
+   (api/create-comment ticket-id data
     (fn [response]
-      (rf/dispatch [:fetch-issue-detail issue-id]))
+      (rf/dispatch [:fetch-ticket-detail ticket-id]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create comment: " error)])))
    {:db db}))
 
 (rf/reg-event-db
- :ws-update-issue
- (fn [db [_ issue]]
-   (let [issues (:issues db)
-         updated-issues (map (fn [i]
-                               (if (= (:id i) (:id issue))
-                                   issue
-                                   i))
-                             issues)]
-     (assoc db :issues (vec updated-issues)))))
+ :ws-update-ticket
+ (fn [db [_ ticket]]
+   (let [tickets (:tickets db)
+         updated-tickets (map (fn [i]
+                                (if (= (:id i) (:id ticket))
+                                    ticket
+                                    i))
+                              tickets)]
+     (assoc db :tickets (vec updated-tickets)))))
 
 (rf/reg-event-db
- :add-issue
- (fn [db [_ issue]]
-   (let [issues (:issues db)
-         without (vec (remove #(= (:id %) (:id issue)) issues))]
-     (assoc db :issues (vec (cons issue without))))))
+ :add-ticket
+ (fn [db [_ ticket]]
+   (let [tickets (:tickets db)
+         without (vec (remove #(= (:id %) (:id ticket)) tickets))]
+     (assoc db :tickets (vec (cons ticket without))))))
 
 (rf/reg-event-db
- :remove-issue
- (fn [db [_ issue-id]]
-   (update db :issues (fn [issues]
-                        (vec (remove #(= (:id %) issue-id) issues))))))
+ :remove-ticket
+ (fn [db [_ ticket-id]]
+   (update db :tickets (fn [tickets]
+                         (vec (remove #(= (:id %) ticket-id) tickets))))))
 
 (rf/reg-event-db
  :add-comment
- (fn [db [_ comment issue-id]]
+ (fn [db [_ comment ticket-id]]
    (if (and (= (:current-view db) :detail)
-            (= (:id (:current-issue db)) issue-id))
+            (= (:id (:current-ticket db)) ticket-id))
      (update db :comments conj comment)
      db)))

@@ -2,7 +2,7 @@
   :name "focus"
   :license "TBD"
   :version "0.0.1.0"
-  :description "Issue tracker"
+  :description "Ticket tracker"
   :depends-on (#:clack
                #:clack-handler-wookie
                #:websocket-driver
@@ -30,7 +30,7 @@
                    (:file "ws")
                    (:module "models"
                    :components ((:file "user")
-                                (:file "issue")
+                                 (:file "ticket")
                                 (:file "label")
                                 (:file "comment")
                                 (:file "activity")

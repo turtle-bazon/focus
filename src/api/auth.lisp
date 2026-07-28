@@ -2,7 +2,6 @@
 
 ;;; OAuth2 / OpenID Connect auth
 
-(defvar *session-store* (cl-oauth2:make-session-store :ttl 86400))
 (defvar *oauth2-client* nil)
 
 (defun make-oauth2-client-from-config (config)
@@ -18,6 +17,13 @@
 
 (defun generate-state ()
   "Generate a random state parameter for CSRF protection."
+  (let ((bytes (make-array 16 :element-type '(unsigned-byte 8))))
+    (iter (for i from 0 below 16)
+      (setf (aref bytes i) (random 256)))
+    (format nil "~{~2,'0x~}" (coerce bytes 'list))))
+
+(defun generate-session-id ()
+  "Generate a random 32-character hex session ID."
   (let ((bytes (make-array 16 :element-type '(unsigned-byte 8))))
     (iter (for i from 0 below 16)
       (setf (aref bytes i) (random 256)))
@@ -42,14 +48,40 @@
         `(:location ,(format nil "/?error=~a" (cl-oauth2:percent-encode error-param)))
         (list "")))
 
+(defun %json-assoc-key (json key)
+  "Look up KEY in a cl-json decoded alist. Handles double-hyphen keywords."
+  (let ((kw (intern (substitute #\- #\_ (string-upcase key)) :keyword)))
+    (or (cdr (assoc kw json :test #'equal))
+        (cdr (assoc (intern (format nil "~{~a~}" (map 'list (lambda (c) (if (char= c #\_) #\- c)) (string-downcase (symbol-name kw)))) :keyword) json :test #'equal)))))
+
+(defun %fetch-userinfo (access-tok)
+  "Fetch user info from the configured userinfo endpoint.
+Returns (values email name username) or signals an error."
+  (let* ((userinfo-uri (config->oauth2-userinfo-uri *config*))
+         (response (dexador:request userinfo-uri
+                                   :headers `(("Authorization" . ,(format nil "Bearer ~a" access-tok)))
+                                   :force-string t))
+         (user-data (cl-json:decode-json-from-string response))
+         (email-key (config->oauth2-userinfo-email-key *config*))
+         (username-key (config->oauth2-userinfo-username-key *config*))
+         (name-key (config->oauth2-userinfo-name-key *config*)))
+    (bl:info "Userinfo response: ~a" user-data)
+    (values (%json-assoc-key user-data email-key)
+            (%json-assoc-key user-data name-key)
+            (%json-assoc-key user-data username-key))))
+
 (defun %handle-auth-success (email name username)
   "Process successful OAuth2 login."
   (let* ((user (or (when email (get-user-by-email email))
-                   (create-user (or username name email "user") (or email (format nil "~a@mattermost" (or username "user"))))))
-         (session-id (cl-oauth2:create-session *session-store* user))
+                   (create-user (or username name email "user")
+                                (or email (format nil "~a@oauth" (or username "user"))))))
+         (session-id (generate-session-id))
+         (user-id (getf user :id))
          (cookie-header (cl-oauth2:make-set-cookie-header
                          "focus_session" session-id
                          :max-age 86400)))
+    (create-db-session session-id user-id
+                       (local-time:timestamp+ (local-time:now) 86400 :sec))
     (bl:info "Auth success for ~a, session ~a" email session-id)
     (list 302
           `(:location "/"
@@ -73,33 +105,21 @@
     (handler-case
         (let* ((token (cl-oauth2:exchange-code *oauth2-client* code))
                (access-tok (cl-oauth2:access-token token)))
-          (bl:info "Token exchanged, fetching user info from Mattermost")
-          (let* ((user-url (format nil "~a/api/v4/users/me" (cl-oauth2:authorization-base *oauth2-client*)))
-                 (response (dexador:request user-url
-                                           :headers `(("Authorization" . ,(format nil "Bearer ~a" access-tok)))
-                                           :force-string t))
-                 (user-data (cl-json:decode-json-from-string response)))
-            (bl:info "Mattermost user: ~a" user-data)
-            (let ((email (cdr (assoc :email user-data)))
-                  (name (cdr (assoc :first--name user-data)))
-                  (username (cdr (assoc :username user-data))))
-              (bl:info "email=~a name=~a username=~a" email name username)
-              (%handle-auth-success email name username))))
+          (bl:info "Token exchanged, fetching user info")
+          (multiple-value-bind (email name username) (%fetch-userinfo access-tok)
+            (bl:info "email=~a name=~a username=~a" email name username)
+            (%handle-auth-success email name username)))
       (error (e)
         (bl:error "OAuth2 callback error: ~a" e)
         (%handle-auth-error "auth_failed")))))
 
 (defun handle-auth-me (env)
   "GET /api/auth/me — return current user info."
-  (let* ((headers (getf env :headers))
-         (cookie-str (when (hash-table-p headers) (gethash "cookie" headers)))
-         (_ (bl:info "Raw cookie: ~a" cookie-str))
-         (session-id (cl-oauth2:get-session-id-from-request env))
-         (_ (bl:info "Session ID: ~a" session-id))
-         (session (cl-oauth2:get-session *session-store* session-id)))
-    (bl:info "Session found: ~a" (if session t nil))
-    (if session
-        (let ((user (cl-oauth2:session-user session)))
+  (let* ((session-id (cl-oauth2:get-session-id-from-request env))
+         (db-session (when session-id (get-db-session session-id))))
+    (if db-session
+        (let* ((user-id (getf db-session :user-id))
+               (user (get-user-by-id user-id)))
           (json-response `(:user ,user :authenticated ,t)))
         (json-response `(:authenticated ,nil) 401))))
 
@@ -108,7 +128,7 @@
   (declare (ignore env))
   (let ((session-id (cl-oauth2:get-session-id-from-request env)))
     (when session-id
-      (cl-oauth2:delete-session *session-store* session-id)))
+      (delete-db-session session-id)))
   (list 200
         (list (cl-oauth2:clear-session-cookie))
         (list "{\"message\":\"Logged out\"}")))

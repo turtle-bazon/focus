@@ -25,6 +25,10 @@
 (defun config->oauth2-token-uri (config) (getf config :oauth2-token-uri))
 (defun config->oauth2-redirect-uri (config) (getf config :oauth2-redirect-uri))
 (defun config->oauth2-scopes (config) (or (getf config :oauth2-scopes) '("openid" "profile" "email")))
+(defun config->oauth2-userinfo-uri (config) (getf config :oauth2-userinfo-uri))
+(defun config->oauth2-userinfo-email-key (config) (or (getf config :oauth2-userinfo-email-key) "email"))
+(defun config->oauth2-userinfo-username-key (config) (or (getf config :oauth2-userinfo-username-key) "username"))
+(defun config->oauth2-userinfo-name-key (config) (or (getf config :oauth2-userinfo-name-key) "name"))
 (defun config->app-name (config) (or (getf config :app-name) "Focus"))
 (defun config->app-description (config) (or (getf config :app-description) "Issue tracker"))
 

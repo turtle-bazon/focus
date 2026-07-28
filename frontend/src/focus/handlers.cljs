@@ -15,7 +15,7 @@
     :comments []
     :activity []
     :search-query ""
-    :loading false
+    :loading true
     :error nil}))
 
 (rf/reg-event-db
@@ -120,12 +120,18 @@
 (rf/reg-event-fx
  :update-issue-status
  (fn [{:keys [db]} [_ id status]]
-   (api/update-issue id {:status status}
-    (fn [response]
-      (rf/dispatch [:fetch-issues {}]))
-    (fn [error]
-      (rf/dispatch [:set-error (str "Failed to update issue: " error)])))
-   {:db (assoc db :loading true)}))
+   (let [issues (:issues db)
+         updated (mapv (fn [i]
+                         (if (= (:id i) id)
+                             (assoc i :status status)
+                             i))
+                       issues)]
+     (api/update-issue id {:status status}
+      (fn [_]) ;; already updated locally, ignore response
+      (fn [error]
+        (rf/dispatch [:set-error (str "Failed to update issue: " error)])
+        (rf/dispatch [:fetch-issues {}])))
+     {:db (assoc db :issues updated)})))
 
 (rf/reg-event-fx
  :delete-issue

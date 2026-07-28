@@ -7,12 +7,16 @@
  :nrepl-port 5000
  :nrepl-address "127.0.0.1"
  :static-dir "./build/static/"
- ;; Mattermost OpenID Connect
+ ;; OAuth2 provider
  :oauth2-client-id ""
  :oauth2-client-secret ""
- :oauth2-authorize-uri "http://mattermost.example.com/oauth/authorize"
- :oauth2-token-uri "http://mattermost.example.com/oauth/token"
+ :oauth2-authorize-uri ""
+ :oauth2-token-uri ""
  :oauth2-redirect-uri "http://localhost:8080/api/auth/callback"
  :oauth2-scopes ("openid" "profile" "email")
+ :oauth2-userinfo-uri ""
+ :oauth2-userinfo-email-key "email"
+ :oauth2-userinfo-username-key "username"
+ :oauth2-userinfo-name-key "name"
  :app-name "Focus"
  :app-description "Issue tracker for teams")

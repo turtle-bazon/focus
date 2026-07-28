@@ -9,7 +9,9 @@
             [focus.ws :as ws]))
 
 (defn mount-root []
-  (rdom/render [focus.views/main-panel] (.getElementById js/document "app")))
+  (let [app-el (.getElementById js/document "app")]
+    (set! (.. app-el -style -display) "block")
+    (rdom/render [focus.views/main-panel] app-el)))
 
 (defn init []
   (rf/dispatch-sync [:initialize-db])

@@ -35,7 +35,8 @@
                                 (:file "comment")
                                 (:file "activity")
                                 (:file "attachment")
-                                (:file "webhook")))
+                                (:file "webhook")
+                                (:file "session")))
                   (:module "api"
                    :components ((:file "routes")
                                 (:file "auth")

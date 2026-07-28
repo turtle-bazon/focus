@@ -86,10 +86,9 @@
           :on-drag-end (fn [_]
                          (reset! dragging false)
                          (set-drag-idx! nil))
-          :on-click #(rf/dispatch [:set-view :detail])
+          :on-click #(js/navigateTo (str "/issues/" (:id issue)))
           :on-mouse-down (fn [e]
-                           (when (= (.-button e) 0)
-                             (rf/dispatch [:fetch-issue-detail (:id issue)])))
+                           (.preventDefault e))
           :on-drag-over (fn [e]
                           (.preventDefault e)
                           (.stopPropagation e)
@@ -261,7 +260,7 @@
       [:div.issue-detail
        [:div.issue-detail-header
         [:button.back-button
-         {:on-click #(rf/dispatch [:set-view :board])}
+         {:on-click #(js/navigateTo "/")}
          "← Back to Board"]
         [:h1 (str "#" (:id issue) " " (:title issue))]]
         [:div.issue-meta
@@ -355,11 +354,10 @@
      [:div.nav-brand "Focus"]
      [:div.nav-links
       [:a {:class (when (= current-view :board) "active")
-           :on-click #(rf/dispatch [:set-view :board])}
+           :on-click #(js/navigateTo "/")}
        "Board"]
       [:a {:class (when (= current-view :list) "active")
-           :on-click #(do (rf/dispatch [:set-view :list])
-                         (rf/dispatch [:fetch-issues {}]))}
+           :on-click #(js/navigateTo "/")}
        "List"]
       [create-issue-modal]]
      [:div.nav-auth

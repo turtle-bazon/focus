@@ -53,13 +53,16 @@
 (rf/reg-event-db
  :set-auth
  (fn [db [_ response]]
-   (let [authenticated (:authenticated response)]
+   (let [authenticated (:authenticated response)
+         path (.-pathname js/window.location)]
      (when authenticated
        (js/initBoard))
      (assoc db
             :auth response
             :loading false
-            :current-view (if authenticated :board :landing)))))
+            :current-view (if authenticated
+                            (if (re-matches #"/issues/\d+" path) :detail :board)
+                            :landing)))))
 
 (rf/reg-event-fx
  :logout

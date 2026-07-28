@@ -49,7 +49,8 @@
       ;; Static files
       ((and (string= method "GET"))
        (or (serve-static-file path)
-           (serve-static-file (if (string= path "/") "index.html" path))
+           (and (ppcre:scan "^/issues/\\d+$" path)
+                (serve-static-file "index.html"))
            (error-response "Not found" 404)))
       ;; 404
       (t

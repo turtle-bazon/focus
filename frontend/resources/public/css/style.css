@@ -442,6 +442,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  margin-top: 24px;
   margin-bottom: 16px;
 }
 
@@ -507,6 +508,10 @@ body {
 
 .activity-action {
   color: #94a3b8;
+}
+
+.activity-value {
+  font-weight: 500;
 }
 
 .activity-date {

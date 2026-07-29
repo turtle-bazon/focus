@@ -334,5 +334,5 @@
  (fn [db [_ comment ticket-id]]
    (if (and (= (:current-view db) :detail)
             (= (:id (:current-ticket db)) ticket-id))
-     (update db :comments conj comment)
+      (update db :comments #(vec (cons comment %)))
      db)))

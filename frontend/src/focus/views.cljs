@@ -2,6 +2,22 @@
   (:require [re-frame.core :as rf]
             [reagent.core :as r]))
 
+(defn format-date [iso-str]
+  (when iso-str
+    (let [d (js/Date. iso-str)
+          now (js/Date.)
+          diff-s (js/Math.floor (/ (- now d) 1000))]
+      (if (< diff-s 43200)
+        (cond
+          (< diff-s 60)   (str diff-s " secs ago")
+          (< diff-s 3600) (let [m (js/Math.floor (/ diff-s 60))]
+                            (str m (if (= m 1) " min ago" " mins ago")))
+          :else            (let [h (js/Math.floor (/ diff-s 3600))]
+                            (str h (if (= h 1) " hour ago" " hours ago"))))
+        (.format (js/Intl.DateTimeFormat. js/undefined
+                  #js {:year "numeric" :month "2-digit" :day "2-digit"
+                       :hour "2-digit" :minute "2-digit" :hour12 false}) d)))))
+
 (def statuses
   [{:id "backlog" :name "Backlog" :color "#6b7280"}
    {:id "open" :name "Open" :color "#3b82f6"}
@@ -254,104 +270,151 @@
                            (reset! priority "medium")))}
              "Create"]]]])])))
 
+(defn ticket-detail-header [ticket users]
+  [:div.ticket-detail-header
+   [:button.back-button
+    {:on-click #(js/navigateTo "/")}
+    "← Back to Board"]
+   [:h1 (str "#" (:id ticket) " " (:title ticket))]
+   [:div.ticket-meta
+    [:span.status-badge
+     {:style {:background-color (get-status-color (:status ticket))}}
+     (:status ticket)]
+    [:select.priority-select
+     {:value (:priority ticket)
+      :style {:background-color (get-priority-color (:priority ticket))}
+      :on-change (fn [e]
+                   (rf/dispatch [:update-ticket-field
+                                 (:id ticket)
+                                 :priority
+                                 (-> e .-target .-value)]))}
+     [:option {:value "low"} "low"]
+     [:option {:value "medium"} "medium"]
+     [:option {:value "high"} "high"]]
+    (when (and (:assignee_id ticket)
+               (not= (:assignee_id ticket) "null")
+               (not (nil? (:assignee_id ticket))))
+      [:span.assignee-badge
+       (let [user (first (filter #(= (:id %) (js/parseInt (:assignee_id ticket))) users))]
+         (or (:username user) (str "User " (:assignee_id ticket))))])]])
+
+(defn comment-form [ticket-id new-comment user-id]
+  [:div.comment-form
+   [:textarea {:value @new-comment
+              :on-change #(reset! new-comment (-> % .-target .-value))
+              :placeholder "Add a comment..."}]
+   [:button.submit-button
+    {:on-click (fn []
+                 (when (seq @new-comment)
+                   (rf/dispatch [:create-comment
+                                 ticket-id
+                                 {:user_id user-id
+                                  :body @new-comment}])
+                   (reset! new-comment "")))}
+    "Add Comment"]])
+
+(defn comment-item [comment users]
+  ^{:key (:id comment)}
+  [:div.comment
+   [:div.comment-header
+    [:span.comment-user
+     (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
+       (or (:username author) (str "User " (:user_id comment))))]
+    [:span.comment-date (format-date (:created_at comment))]]
+   [:div.comment-body (:body comment)]])
+
+(defn comments-tab [ticket new-comment user-id users]
+  (let [comments @(rf/subscribe [:comments])]
+    [:div.ticket-section
+     [comment-form (:id ticket) new-comment user-id]
+     [:div.comments-list
+      (for [comment comments]
+        [comment-item comment users])]]))
+
+(defn parse-activity-details [item]
+  (let [raw (cond
+              (string? (:details item))
+              (js->clj (js/JSON.parse (:details item)) :keywordize-keys true)
+              (map? (:details item))
+              (:details item)
+              :else nil)]
+    (if (vector? raw)
+      (into {} (map (fn [[k v]] [(if (keyword? k) k (keyword k)) v]) raw))
+      raw)))
+
+(defn activity-action-content [item details actor-name]
+  (let [status-span (fn [s]
+                      [:span.activity-value
+                       {:style {:color (get-status-color s)}}
+                       s])
+        priority-span (fn [p]
+                        [:span.activity-value
+                         {:style {:color (get-priority-color p)}}
+                         p])]
+    (case (:action item)
+      "created" [actor-name " created this ticket"]
+      "status_changed" [actor-name " changed status from " [status-span (:from details)] " to " [status-span (:to details)]]
+      "priority_changed" [actor-name " changed priority from " [priority-span (:from details)] " to " [priority-span (:to details)]]
+      "status_priority_changed" [actor-name " changed status from " [status-span (:old-status details)] " to " [status-span (:new-status details)] " and priority from " [priority-span (:old-priority details)] " to " [priority-span (:new-priority details)]]
+      "title_changed" [actor-name " changed title"]
+      "comment_added" (let [preview (when-let [body (:body details)]
+                                      (when (string? body)
+                                        (let [truncated (subs body 0 (min (count body) 50))]
+                                          (if (> (count body) 50)
+                                            (str truncated "...")
+                                            truncated))))]
+                        (if preview
+                          [actor-name " added a comment: \"" [:span.activity-value preview] "\""]
+                          [actor-name " added a comment"]))
+      [actor-name " " (:action item)])))
+
+(defn activity-item [item user-map]
+  (let [details (parse-activity-details item)
+        actor (get user-map (:user_id item))
+        actor-name (or (:username actor) (str "User " (:user_id item)))
+        action-content (activity-action-content item details actor-name)]
+    ^{:key (:id item)}
+    [:div.activity-item
+     (into [:span.activity-action] action-content)
+     [:span.activity-date (format-date (:created_at item))]]))
+
+(defn activity-tab []
+  (let [activity @(rf/subscribe [:activity])
+        user-map @(rf/subscribe [:user-map])]
+    [:div.ticket-section
+     [:div.activity-list
+      (for [item activity]
+        [activity-item item user-map])]]))
+
 (defn ticket-detail []
   (let [new-comment (r/atom "")
         active-tab (r/atom :comments)]
     (fn []
       (let [ticket @(rf/subscribe [:current-ticket])
-            comments @(rf/subscribe [:comments])
-            activity @(rf/subscribe [:activity])
             users @(rf/subscribe [:users])
             auth @(rf/subscribe [:auth])
             user-id (get-in auth [:user :id] 1)]
         (if ticket
           [:div.ticket-detail
-           [:div.ticket-detail-header
-            [:button.back-button
-             {:on-click #(js/navigateTo "/")}
-             "← Back to Board"]
-            [:h1 (str "#" (:id ticket) " " (:title ticket))]]
-             [:div.ticket-meta
-              [:span.status-badge
-               {:style {:background-color (get-status-color (:status ticket))}}
-               (:status ticket)]
-              [:select.priority-select
-               {:value (:priority ticket)
-                :style {:background-color (get-priority-color (:priority ticket))}
-                :on-change (fn [e]
-                             (rf/dispatch [:update-ticket-field
-                                           (:id ticket)
-                                           :priority
-                                           (-> e .-target .-value)]))}
-               [:option {:value "low"} "low"]
-               [:option {:value "medium"} "medium"]
-               [:option {:value "high"} "high"]]
-             (when (and (:assignee_id ticket)
-                        (not= (:assignee_id ticket) "null")
-                        (not (nil? (:assignee_id ticket))))
-               [:span.assignee-badge
-                (let [user (first (filter #(= (:id %) (js/parseInt (:assignee_id ticket))) users))]
-                  (or (:username user) (str "User " (:assignee_id ticket))))])]
+           [ticket-detail-header ticket users]
            [:div.ticket-body
             [:p (:description ticket)]]
            [:div.ticket-tabs
             [:button.tab-button
              {:class (when (= @active-tab :comments) "active")
               :on-click #(reset! active-tab :comments)}
-             (str "Comments (" (count comments) ")")]
+             (str "Comments (" @(rf/subscribe [:comment-count]) ")")]
             [:button.tab-button
              {:class (when (= @active-tab :activity) "active")
               :on-click #(reset! active-tab :activity)}
-             (str "Activity (" (count activity) ")")]]
+             (str "Activity (" @(rf/subscribe [:activity-count]) ")")]]
            (if (= @active-tab :comments)
-             [:div.ticket-section
-              [:div.comments-list
-               (for [comment comments]
-                 ^{:key (:id comment)}
-                 [:div.comment
-                  [:div.comment-header
-                   [:span.comment-user
-                    (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
-                      (or (:username author) (str "User " (:user_id comment))))]
-                   [:span.comment-date (:created_at comment)]]
-                  [:div.comment-body (:body comment)]])]
-              [:div.comment-form
-               [:textarea {:value @new-comment
-                          :on-change #(reset! new-comment (-> % .-target .-value))
-                          :placeholder "Add a comment..."}]
-               [:button.submit-button
-                {:on-click (fn []
-                            (when (seq @new-comment)
-                              (rf/dispatch [:create-comment
-                                           (:id ticket)
-                                           {:user_id user-id
-                                            :body @new-comment}])
-                              (reset! new-comment "")))}
-                "Add Comment"]]]
-             [:div.ticket-section
-              [:div.activity-list
-               (let [user-map @(rf/subscribe [:user-map])]
-                 (for [item activity]
-                   ^{:key (:id item)}
-                   (let [details (cond
-                                   (string? (:details item))
-                                   (js->clj (js/JSON.parse (:details item)) :keywordize-keys true)
-                                   (map? (:details item))
-                                   (:details item)
-                                   :else nil)
-                         actor (get user-map (:user_id item))
-                         actor-name (or (:username actor) (str "User " (:user_id item)))
-                         action-text (case (:action item)
-                                       "created" (str actor-name " created this ticket")
-                                       "status_changed" (str actor-name " changed status from " (:from details) " to " (:to details))
-                                       "priority_changed" (str actor-name " changed priority from " (:from details) " to " (:to details))
-                                       "title_changed" (str actor-name " changed title")
-                                       "comment_added" (str actor-name " added a comment")
-                                       (str actor-name " " (:action item)))]
-                     [:div.activity-item
-                      [:span.activity-action action-text]
-                      [:span.activity-date (:created_at item)]])))]])]
+             [comments-tab ticket new-comment user-id users]
+             [activity-tab])]
           [:div.loading "Loading..."])))))
+
+
+
 
 (defn error-banner []
   (let [error @(rf/subscribe [:error])]

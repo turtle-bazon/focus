@@ -157,7 +157,7 @@
       (let ((ticket (get-ticket-by-id id))
             (user-id (get-user-id-from-env env)))
         (log-activity id user-id "created"
-                       :details `((:title ,title)))
+                       :details `((:title . ,title)))
         (ws-broadcast-ticket-created ticket)
         (json-response `(:id ,id) 201)))))
 
@@ -187,15 +187,24 @@
                                         :assignee-id assignee-id))))
           (if ticket
               (progn
-                (when (and old-ticket status (not (equal (getf old-ticket :status) status)))
-                  (log-activity id user-id "status_changed"
-                                 :details `((:from . ,(getf old-ticket :status)) (:to . ,status))))
-                (when (and old-ticket priority (not (equal (getf old-ticket :priority) priority)))
-                  (log-activity id user-id "priority_changed"
-                                 :details `((:from . ,(getf old-ticket :priority)) (:to . ,priority))))
-                (when (and old-ticket title (not (equal (getf old-ticket :title) title)))
-                  (log-activity id user-id "title_changed"
-                                 :details `((:from . ,(getf old-ticket :title)) (:to . ,title))))
+                (let ((status-changed (and old-ticket status (not (equal (getf old-ticket :status) status))))
+                      (priority-changed (and old-ticket priority (not (equal (getf old-ticket :priority) priority))))
+                      (title-changed (and old-ticket title (not (equal (getf old-ticket :title) title)))))
+                  (when (and status-changed priority-changed)
+                    (log-activity id user-id "status_priority_changed"
+                                  :details `(("old-status" . ,(getf old-ticket :status))
+                                             ("new-status" . ,status)
+                                             ("old-priority" . ,(getf old-ticket :priority))
+                                             ("new-priority" . ,priority))))
+                  (when (and status-changed (not priority-changed))
+                    (log-activity id user-id "status_changed"
+                                  :details `((:from . ,(getf old-ticket :status)) (:to . ,status))))
+                  (when (and priority-changed (not status-changed))
+                    (log-activity id user-id "priority_changed"
+                                  :details `((:from . ,(getf old-ticket :priority)) (:to . ,priority))))
+                  (when title-changed
+                    (log-activity id user-id "title_changed"
+                                  :details `((:from . ,(getf old-ticket :title)) (:to . ,title)))))
                 (ws-broadcast-ticket-update ticket)
                 (json-response ticket))
               (error-response "Ticket not found" 404)))
@@ -217,7 +226,15 @@
   "GET /api/tickets/:id/comments"
   (let ((ticket-id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/comments$")))
     (if ticket-id
-        (json-response `(:comments ,(list-comments ticket-id)))
+        (let* ((query (getf env :query-string))
+               (params (parse-query-string query))
+               (limit-str (cdr (assoc "limit" params :test #'string=)))
+               (offset-str (cdr (assoc "offset" params :test #'string=)))
+               (limit (if limit-str (parse-integer limit-str) 50))
+               (offset (if offset-str (parse-integer offset-str) 0))
+               (comments (list-comments ticket-id :limit limit :offset offset))
+               (total (count-comments ticket-id)))
+          (json-response `(:comments ,comments :total ,total)))
         (error-response "Invalid ticket ID"))))
 
 (defun handle-create-comment (env)
@@ -240,7 +257,7 @@
             (log-activity ticket-id
                           (if (stringp user-id) (parse-integer user-id) user-id)
                           "comment_added"
-                          :details `((:user_id ,user-id) (:body ,comment-body)))
+                          :details `((:user_id . ,user-id) (:body . ,comment-body)))
             (ws-broadcast-comment-created comment ticket-id)
             (json-response `(:id ,id) 201)))
         (error-response "Invalid ticket ID"))))

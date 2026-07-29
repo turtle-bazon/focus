@@ -17,13 +17,22 @@
                   id :alists)))
     (when results (alist-to-plist (car results)))))
 
-(defun list-comments (ticket-id)
-  "List all comments for a ticket."
+(defun count-comments (ticket-id)
+  "Count total comments for a ticket."
+  (let ((result (pg-query-params
+                 "SELECT COUNT(*) as count FROM comments WHERE ticket_id = $1"
+                 (list ticket-id))))
+    (when result
+      (getf (car result) :count))))
+
+(defun list-comments (ticket-id &key (limit 50) (offset 0))
+  "List comments for a ticket with pagination."
   (pg-query-params
    "SELECT id, ticket_id, user_id, body, created_at, updated_at
     FROM comments WHERE ticket_id = $1
-    ORDER BY created_at ASC"
-   (list ticket-id)))
+    ORDER BY created_at DESC
+    LIMIT $2 OFFSET $3"
+   (list ticket-id limit offset)))
 
 (defun update-comment (id &key body)
   "Update comment body. Returns the updated comment."

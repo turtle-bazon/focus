@@ -83,3 +83,13 @@
  :label-map
  (fn [db _]
    (into {} (map #(vector (:id %) %) (:labels db)))))
+
+(rf/reg-sub
+ :comment-count
+ (fn [db _]
+   (count (:comments db))))
+
+(rf/reg-sub
+ :activity-count
+ (fn [db _]
+   (count (:activity db))))

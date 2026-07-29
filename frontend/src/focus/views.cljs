@@ -387,10 +387,10 @@
         [activity-item item user-map])]]))
 
 (defn ticket-detail []
-  (let [new-comment (r/atom "")
-        active-tab (r/atom :comments)]
+  (let [new-comment (r/atom "")]
     (fn []
       (let [ticket @(rf/subscribe [:current-ticket])
+            active-tab @(rf/subscribe [:active-tab])
             users @(rf/subscribe [:users])
             auth @(rf/subscribe [:auth])
             user-id (get-in auth [:user :id] 1)]
@@ -400,15 +400,17 @@
            [:div.ticket-body
             [:p (:description ticket)]]
            [:div.ticket-tabs
-            [:button.tab-button
-             {:class (when (= @active-tab :comments) "active")
-              :on-click #(reset! active-tab :comments)}
-             (str "Comments (" @(rf/subscribe [:comment-count]) ")")]
-            [:button.tab-button
-             {:class (when (= @active-tab :activity) "active")
-              :on-click #(reset! active-tab :activity)}
-             (str "Activity (" @(rf/subscribe [:activity-count]) ")")]]
-           (if (= @active-tab :comments)
+             [:button.tab-button
+              {:class (when (= active-tab :comments) "active")
+               :on-click #(do (rf/dispatch [:set-active-tab :comments])
+                              (js/setUrl (str "/tickets/" (:id ticket))))}
+              (str "Comments (" @(rf/subscribe [:comment-count]) ")")]
+             [:button.tab-button
+              {:class (when (= active-tab :activity) "active")
+               :on-click #(do (rf/dispatch [:set-active-tab :activity])
+                              (js/setUrl (str "/tickets/" (:id ticket) "/activity")))}
+              (str "Activity (" @(rf/subscribe [:activity-count]) ")")]]
+           (if (= active-tab :comments)
              [comments-tab ticket new-comment user-id users]
              [activity-tab])]
           [:div.loading "Loading..."])))))

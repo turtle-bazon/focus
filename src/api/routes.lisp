@@ -47,13 +47,15 @@
       ((ppcre:scan "^/api/" path)
        (route-api env path method))
       ;; Static files
-      ((and (string= method "GET"))
-       (or (serve-static-file path)
-           (and (ppcre:scan "^/tickets/\\d+$" path)
-                (serve-static-file "index.html"))
-           (and (string= path "/")
-                (serve-static-file "index.html"))
-           (error-response "Not found" 404)))
+       ((and (string= method "GET"))
+        (or (serve-static-file path)
+            (and (ppcre:scan "^/tickets/\\d+$" path)
+                 (serve-static-file "index.html"))
+            (and (ppcre:scan "^/tickets/\\d+/activity$" path)
+                 (serve-static-file "index.html"))
+            (and (string= path "/")
+                 (serve-static-file "index.html"))
+            (error-response "Not found" 404)))
       ;; 404
       (t
        (error-response "Not found" 404)))))

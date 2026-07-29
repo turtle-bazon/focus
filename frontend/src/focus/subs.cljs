@@ -93,3 +93,8 @@
  :activity-count
  (fn [db _]
    (count (:activity db))))
+
+(rf/reg-sub
+ :active-tab
+ (fn [db _]
+   (:active-tab db)))

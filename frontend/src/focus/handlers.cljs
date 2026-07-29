@@ -16,12 +16,18 @@
     :activity []
     :search-query ""
     :loading true
-    :error nil}))
+    :error nil
+    :active-tab :comments}))
 
 (rf/reg-event-db
  :set-view
  (fn [db [_ view]]
    (assoc db :current-view view)))
+
+(rf/reg-event-db
+ :set-active-tab
+ (fn [db [_ tab]]
+   (assoc db :active-tab tab)))
 
 ;;; Auth events
 
@@ -60,9 +66,9 @@
      (assoc db
             :auth response
             :loading false
-            :current-view (if authenticated
-                            (if (re-matches #"/tickets/\d+" path) :detail :board)
-                            :landing)))))
+             :current-view (if authenticated
+                             (if (re-matches #"/tickets/\d+(/.*)?" path) :detail :board)
+                             :landing)))))
 
 (rf/reg-event-fx
  :logout

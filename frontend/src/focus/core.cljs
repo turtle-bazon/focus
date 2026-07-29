@@ -14,10 +14,20 @@
     (.pushState js/window.history nil "" path))
   (secretary/dispatch! path))
 
+(defn set-url [path]
+  (when-not (= (.-pathname js/window.location) path)
+    (.pushState js/window.history nil "" path)))
+
 (secretary/defroute "/" []
   (rf/dispatch [:set-view :board]))
 
 (secretary/defroute "/tickets/:id" [id]
+  (rf/dispatch [:set-active-tab :comments])
+  (rf/dispatch [:fetch-ticket-detail (js/parseInt id)])
+  (rf/dispatch [:set-view :detail]))
+
+(secretary/defroute "/tickets/:id/activity" [id]
+  (rf/dispatch [:set-active-tab :activity])
   (rf/dispatch [:fetch-ticket-detail (js/parseInt id)])
   (rf/dispatch [:set-view :detail]))
 
@@ -46,3 +56,4 @@
 (goog.object/set js/window "init" init)
 (goog.object/set js/window "initBoard" init-board)
 (goog.object/set js/window "navigateTo" navigate-to)
+(goog.object/set js/window "setUrl" set-url)

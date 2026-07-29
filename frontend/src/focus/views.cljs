@@ -1,29 +1,35 @@
 (ns focus.views
   (:require [re-frame.core :as rf]
-            [reagent.core :as r]))
+            [reagent.core :as r]
+            [focus.i18n :as i18n]))
+
+(defn t [key]
+  (let [locale @(rf/subscribe [:locale])]
+    (i18n/t locale key)))
 
 (defn format-date [iso-str]
   (when iso-str
     (let [d (js/Date. iso-str)
           now (js/Date.)
-          diff-s (js/Math.floor (/ (- now d) 1000))]
+          diff-s (js/Math.floor (/ (- now d) 1000))
+          locale @(rf/subscribe [:locale])]
       (if (< diff-s 43200)
         (cond
-          (< diff-s 60)   (str diff-s " secs ago")
+          (< diff-s 60)   (str diff-s (i18n/t locale :time/secs-ago))
           (< diff-s 3600) (let [m (js/Math.floor (/ diff-s 60))]
-                            (str m (if (= m 1) " min ago" " mins ago")))
+                            (str m (if (= m 1) (i18n/t locale :time/min-ago) (i18n/t locale :time/mins-ago))))
           :else            (let [h (js/Math.floor (/ diff-s 3600))]
-                            (str h (if (= h 1) " hour ago" " hours ago"))))
+                            (str h (if (= h 1) (i18n/t locale :time/hour-ago) (i18n/t locale :time/hours-ago)))))
         (.format (js/Intl.DateTimeFormat. js/undefined
                   #js {:year "numeric" :month "2-digit" :day "2-digit"
                        :hour "2-digit" :minute "2-digit" :hour12 false}) d)))))
 
 (def statuses
-  [{:id "backlog" :name "Backlog" :color "#6b7280"}
-   {:id "open" :name "Open" :color "#3b82f6"}
-   {:id "in_progress" :name "In Progress" :color "#f59e0b"}
-   {:id "review" :name "Review" :color "#8b5cf6"}
-   {:id "done" :name "Done" :color "#10b981"}])
+  [{:id "backlog" :name-key :status/backlog :color "#6b7280"}
+   {:id "open" :name-key :status/open :color "#3b82f6"}
+   {:id "in_progress" :name-key :status/in-progress :color "#f59e0b"}
+   {:id "review" :name-key :status/review :color "#8b5cf6"}
+   {:id "done" :name-key :status/done :color "#10b981"}])
 
 (def priority-colors
   {"low" "#6b7280"
@@ -43,18 +49,18 @@
     [:div.landing-page
      [:div.landing-hero
       [:div.landing-content
-       [:h1.landing-title (or (:name app-info) "Focus")]
+       [:h1.landing-title (or (:name app-info) (t :app/title))]
        [:p.landing-description
         (or (:description app-info)
-            "A Kanban-style ticket tracker for teams.")]
+            (t :app/description))]
        (if (:oauth2_configured app-info)
          [:a.login-button {:href "/api/auth/login"}
-          "Sign in with Mattermost"]
+          (t :auth/sign-in)]
          [:div.landing-no-oauth
-          [:p "OAuth2 is not configured yet."]
-          [:p "Set :oauth2-client-id and :oauth2-client-secret in focus.conf"]])]]
+          [:p (t :auth/not-configured)]
+          [:p (t :auth/config-hint)]])]]
      [:div.landing-footer
-      [:p "Focus v0.0.1.0"]]]))
+      [:p (t :app/version)]]]))
 
 ;;; Board components
 
@@ -67,7 +73,11 @@
      {:style {:border-left-color color}}
      [:span.priority-label
       {:style {:color color}}
-      priority]]))
+      (case priority
+        "low" (t :priority/low)
+        "medium" (t :priority/medium)
+        "high" (t :priority/high)
+        priority)]]))
 
 (defn draggable-card [ticket on-card-over card-idx drag-idx set-drag-idx!]
   (let [card-ref (r/atom nil)
@@ -120,8 +130,12 @@
          [:div.ticket-card-header
           [:span.ticket-id (str "#" (:id ticket))]
           [:span.ticket-priority
-           {:style {:background-color (get-priority-color (:priority ticket))}}
-           (:priority ticket)]]
+           {:style {:background-color (or (:color ticket) (get-priority-color (:priority ticket)))}}
+           (case (:priority ticket)
+             "low" (t :priority/low)
+             "medium" (t :priority/medium)
+             "high" (t :priority/high)
+             (:priority ticket))]]
          [:h3.ticket-title (:title ticket)]
          (when (and (:assignee_id ticket)
                     (not= (:assignee_id ticket) "null")
@@ -130,7 +144,7 @@
             [:span.avatar
              (let [user-map @(rf/subscribe [:user-map])
                    user (get user-map (js/parseInt (:assignee_id ticket)))]
-               (or (:username user) (str "User " (:assignee_id ticket))))]])]))))
+               (or (:username user) (str (t :ticket/user-prefix) (:assignee_id ticket))))]])]))))
 
 (defn priority-group [status-id priority tickets]
   (let [drag-idx (r/atom nil)
@@ -204,7 +218,7 @@
                    (rf/dispatch [:reorder-ticket ticket-id (:id status) priority target-idx])))}
      [:div.column-header
       {:style {:border-bottom-color (:color status)}}
-      [:span.column-title (:name status)]
+      [:span.column-title (t (:name-key status))]
       [:span.column-count (count tickets)]]
      [:div.column-cards
       (doall
@@ -228,58 +242,70 @@
       [:div
        [:button.create-button
         {:on-click #(reset! show-modal true)}
-        "New Ticket"]
+        (t :ticket/new)]
        (when @show-modal
          [:div.modal-overlay
           {:on-click #(reset! show-modal false)}
           [:div.modal
            {:on-click #(.stopPropagation %)}
-            [:h2 "Create Ticket"]
+           [:h2 (t :ticket/create)]
            [:div.form-group
-            [:label "Title"]
+            [:label (t :ticket/title)]
             [:input {:type "text"
                      :value @title
                      :on-change #(reset! title (-> % .-target .-value))
-                      :placeholder "Ticket title"}]]
+                     :placeholder (t :ticket/title-placeholder)}]]
            [:div.form-group
-            [:label "Description"]
+            [:label (t :ticket/description)]
             [:textarea {:value @description
-                       :on-change #(reset! description (-> % .-target .-value))
-                        :placeholder "Describe the ticket..."}]]
+                        :on-change #(reset! description (-> % .-target .-value))
+                        :placeholder (t :ticket/description-placeholder)}]]
            [:div.form-group
-            [:label "Priority"]
+            [:label (t :ticket/priority)]
             [:select {:value @priority
-                     :on-change #(reset! priority (-> % .-target .-value))}
-             [:option {:value "low"} "Low"]
-             [:option {:value "medium"} "Medium"]
-             [:option {:value "high"} "High"]]]
+                      :on-change #(reset! priority (-> % .-target .-value))}
+             [:option {:value "low"} (t :priority/low-label)]
+             [:option {:value "medium"} (t :priority/medium-label)]
+             [:option {:value "high"} (t :priority/high-label)]]]
            [:div.modal-actions
             [:button.cancel-button
              {:on-click #(reset! show-modal false)}
-             "Cancel"]
+             (t :ticket/cancel)]
             [:button.submit-button
              {:on-click (fn []
-                         (when (seq @title)
+                          (when (seq @title)
                             (rf/dispatch [:create-ticket
-                                        {:title @title
-                                         :description @description
-                                         :priority @priority}])
-                           (reset! show-modal false)
-                           (reset! title "")
-                           (reset! description "")
-                           (reset! priority "medium")))}
-             "Create"]]]])])))
+                                          {:title @title
+                                           :description @description
+                                           :priority @priority}])
+                            (reset! show-modal false)
+                            (reset! title "")
+                            (reset! description "")
+                            (reset! priority "medium")))}
+             (t :ticket/create-btn)]]]])])))
+
+
 
 (defn ticket-detail-header [ticket users]
   [:div.ticket-detail-header
    [:button.back-button
     {:on-click #(js/navigateTo "/")}
-    "← Back to Board"]
+    (t :ticket/back)]
    [:h1 (str "#" (:id ticket) " " (:title ticket))]
    [:div.ticket-meta
-    [:span.status-badge
-     {:style {:background-color (get-status-color (:status ticket))}}
-     (:status ticket)]
+    [:select.status-select
+     {:value (:status ticket)
+      :style {:background-color (get-status-color (:status ticket))}
+      :on-change (fn [e]
+                   (rf/dispatch [:update-ticket-field
+                                 (:id ticket)
+                                 :status
+                                 (-> e .-target .-value)]))}
+     [:option {:value "backlog"} (t :status/backlog)]
+     [:option {:value "open"} (t :status/open)]
+     [:option {:value "in_progress"} (t :status/in-progress)]
+     [:option {:value "review"} (t :status/review)]
+     [:option {:value "done"} (t :status/done)]]
     [:select.priority-select
      {:value (:priority ticket)
       :style {:background-color (get-priority-color (:priority ticket))}
@@ -288,21 +314,21 @@
                                  (:id ticket)
                                  :priority
                                  (-> e .-target .-value)]))}
-     [:option {:value "low"} "low"]
-     [:option {:value "medium"} "medium"]
-     [:option {:value "high"} "high"]]
+     [:option {:value "low"} (t :priority/low)]
+     [:option {:value "medium"} (t :priority/medium)]
+     [:option {:value "high"} (t :priority/high)]]
     (when (and (:assignee_id ticket)
                (not= (:assignee_id ticket) "null")
                (not (nil? (:assignee_id ticket))))
       [:span.assignee-badge
        (let [user (first (filter #(= (:id %) (js/parseInt (:assignee_id ticket))) users))]
-         (or (:username user) (str "User " (:assignee_id ticket))))])]])
+         (or (:username user) (str (t :ticket/user-prefix) (:assignee_id ticket))))])]])
 
 (defn comment-form [ticket-id new-comment user-id]
   [:div.comment-form
    [:textarea {:value @new-comment
               :on-change #(reset! new-comment (-> % .-target .-value))
-              :placeholder "Add a comment..."}]
+              :placeholder (t :comment/add-placeholder)}]
    [:button.submit-button
     {:on-click (fn []
                  (when (seq @new-comment)
@@ -311,7 +337,7 @@
                                  {:user_id user-id
                                   :body @new-comment}])
                    (reset! new-comment "")))}
-    "Add Comment"]])
+    (t :comment/add-btn)]])
 
 (defn comment-item [comment users]
   ^{:key (:id comment)}
@@ -319,17 +345,43 @@
    [:div.comment-header
     [:span.comment-user
      (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
-       (or (:username author) (str "User " (:user_id comment))))]
+       (or (:username author) (str (t :ticket/user-prefix) (:user_id comment))))]
     [:span.comment-date (format-date (:created_at comment))]]
    [:div.comment-body (:body comment)]])
 
 (defn comments-tab [ticket new-comment user-id users]
-  (let [comments @(rf/subscribe [:comments])]
-    [:div.ticket-section
-     [comment-form (:id ticket) new-comment user-id]
-     [:div.comments-list
-      (for [comment comments]
-        [comment-item comment users])]]))
+  (let [container (r/atom nil)
+        observer (r/atom nil)]
+    (r/create-class
+     {:component-did-mount
+      (fn [_this]
+        (when-let [el @container]
+          (let [sentinel (.querySelector el ".scroll-sentinel")
+                obs (js/IntersectionObserver.
+                     (fn [entries]
+                       (when (.-isIntersecting (first entries))
+                         (rf/dispatch [:load-more-comments (:id ticket)])))
+                     #js {:rootMargin "100px"})]
+            (when sentinel (.observe obs sentinel))
+            (reset! observer obs))))
+      :component-will-unmount
+      (fn [_this]
+        (when-let [o @observer] (.disconnect o)))
+      :reagent-render
+      (fn [ticket new-comment user-id users]
+        (let [comments @(rf/subscribe [:comments])
+              loading @(rf/subscribe [:comments-loading])
+              has-more @(rf/subscribe [:has-more-comments])]
+          [:div.ticket-section {:ref #(reset! container %)}
+           [comment-form (:id ticket) new-comment user-id]
+           [:div.comments-list
+            (for [comment comments]
+              ^{:key (:id comment)}
+              [comment-item comment users])]
+           (when loading
+             [:div.loading-indicator (t :loading)])
+           (when (and has-more (not loading))
+             [:div.scroll-sentinel])]))})))
 
 (defn parse-activity-details [item]
   (let [raw (cond
@@ -343,20 +395,33 @@
       raw)))
 
 (defn activity-action-content [item details actor-name]
-  (let [status-span (fn [s]
-                      [:span.activity-value
-                       {:style {:color (get-status-color s)}}
-                       s])
-        priority-span (fn [p]
+  (let [locale @(rf/subscribe [:locale])
+        status-span (fn [s]
+                      (let [localized (case s
+                                       "backlog" (i18n/t locale :status/backlog)
+                                       "open" (i18n/t locale :status/open)
+                                       "in_progress" (i18n/t locale :status/in-progress)
+                                       "review" (i18n/t locale :status/review)
+                                       "done" (i18n/t locale :status/done)
+                                       s)]
                         [:span.activity-value
-                         {:style {:color (get-priority-color p)}}
-                         p])]
+                         {:style {:color (get-status-color s)}}
+                         localized]))
+        priority-span (fn [p]
+                        (let [localized (case p
+                                          "low" (i18n/t locale :priority/low)
+                                          "medium" (i18n/t locale :priority/medium)
+                                          "high" (i18n/t locale :priority/high)
+                                          p)]
+                          [:span.activity-value
+                           {:style {:color (get-priority-color p)}}
+                           localized]))]
     (case (:action item)
-      "created" [actor-name " created this ticket"]
-      "status_changed" [actor-name " changed status from " [status-span (:from details)] " to " [status-span (:to details)]]
-      "priority_changed" [actor-name " changed priority from " [priority-span (:from details)] " to " [priority-span (:to details)]]
-      "status_priority_changed" [actor-name " changed status from " [status-span (:old-status details)] " to " [status-span (:new-status details)] " and priority from " [priority-span (:old-priority details)] " to " [priority-span (:new-priority details)]]
-      "title_changed" [actor-name " changed title"]
+      "created" [actor-name (i18n/t locale :activity/created)]
+      "status_changed" [actor-name (i18n/t locale :activity/changed-status-from) [status-span (:from details)] (i18n/t locale :activity/to) [status-span (:to details)]]
+      "priority_changed" [actor-name (i18n/t locale :activity/changed-priority-from) [priority-span (:from details)] (i18n/t locale :activity/to) [priority-span (:to details)]]
+      "status_priority_changed" [actor-name (i18n/t locale :activity/changed-status-from) [status-span (:old-status details)] (i18n/t locale :activity/to) [status-span (:new-status details)] (i18n/t locale :activity/and-priority) [priority-span (:old-priority details)] (i18n/t locale :activity/to) [priority-span (:new-priority details)]]
+      "title_changed" [actor-name (i18n/t locale :activity/changed-title)]
       "comment_added" (let [preview (when-let [body (:body details)]
                                       (when (string? body)
                                         (let [truncated (subs body 0 (min (count body) 50))]
@@ -364,14 +429,14 @@
                                             (str truncated "...")
                                             truncated))))]
                         (if preview
-                          [actor-name " added a comment: \"" [:span.activity-value preview] "\""]
-                          [actor-name " added a comment"]))
+                          [actor-name (i18n/t locale :activity/comment-preview) [:span.activity-value preview] (i18n/t locale :activity/comment-quote)]
+                          [actor-name (i18n/t locale :activity/comment-added)]))
       [actor-name " " (:action item)])))
 
 (defn activity-item [item user-map]
   (let [details (parse-activity-details item)
         actor (get user-map (:user_id item))
-        actor-name (or (:username actor) (str "User " (:user_id item)))
+        actor-name (or (:username actor) (str (t :ticket/user-prefix) (:user_id item)))
         action-content (activity-action-content item details actor-name)]
     ^{:key (:id item)}
     [:div.activity-item
@@ -379,12 +444,41 @@
      [:span.activity-date (format-date (:created_at item))]]))
 
 (defn activity-tab []
-  (let [activity @(rf/subscribe [:activity])
-        user-map @(rf/subscribe [:user-map])]
-    [:div.ticket-section
-     [:div.activity-list
-      (for [item activity]
-        [activity-item item user-map])]]))
+  (let [container (r/atom nil)
+        observer (r/atom nil)
+        ticket-id (r/atom nil)]
+    (r/create-class
+     {:component-did-mount
+      (fn [_this]
+        (when-let [el @container]
+          (let [sentinel (.querySelector el ".scroll-sentinel")
+                obs (js/IntersectionObserver.
+                     (fn [entries]
+                       (when (and (.-isIntersecting (first entries)) @ticket-id)
+                         (rf/dispatch [:load-more-activity @ticket-id])))
+                     #js {:rootMargin "100px"})]
+            (when sentinel (.observe obs sentinel))
+            (reset! observer obs))))
+      :component-will-unmount
+      (fn [_this]
+        (when-let [o @observer] (.disconnect o)))
+      :reagent-render
+      (fn []
+        (let [activity @(rf/subscribe [:activity])
+              user-map @(rf/subscribe [:user-map])
+              loading @(rf/subscribe [:activity-loading])
+              has-more @(rf/subscribe [:has-more-activity])
+              ticket @(rf/subscribe [:current-ticket])]
+          (reset! ticket-id (:id ticket))
+          [:div.ticket-section {:ref #(reset! container %)}
+           [:div.activity-list
+            (for [item activity]
+              ^{:key (:id item)}
+              [activity-item item user-map])]
+           (when loading
+             [:div.loading-indicator (t :loading)])
+           (when (and has-more (not loading))
+             [:div.scroll-sentinel])]))})))
 
 (defn ticket-detail []
   (let [new-comment (r/atom "")]
@@ -404,17 +498,16 @@
               {:class (when (= active-tab :comments) "active")
                :on-click #(do (rf/dispatch [:set-active-tab :comments])
                               (js/setUrl (str "/tickets/" (:id ticket))))}
-              (str "Comments (" @(rf/subscribe [:comment-count]) ")")]
+              (str (t :tab/comments) " (" @(rf/subscribe [:comment-count]) ")")]
              [:button.tab-button
               {:class (when (= active-tab :activity) "active")
                :on-click #(do (rf/dispatch [:set-active-tab :activity])
                               (js/setUrl (str "/tickets/" (:id ticket) "/activity")))}
-              (str "Activity (" @(rf/subscribe [:activity-count]) ")")]]
+              (str (t :tab/activity) " (" @(rf/subscribe [:activity-count]) ")")]]
            (if (= active-tab :comments)
              [comments-tab ticket new-comment user-id users]
              [activity-tab])]
-          [:div.loading "Loading..."])))))
-
+          [:div.loading (t :loading)])))))
 
 
 
@@ -443,27 +536,62 @@
                                            (rf/dispatch [:search-tickets v])
                                            (reset! debounce-timer nil))
                                          300))))
-                                   :placeholder "Search tickets..."}]]))))
+                                   :placeholder (t :nav/search)}]]))))
+
+(defn language-switcher []
+  (let [locale @(rf/subscribe [:locale])
+        open? (r/atom false)
+        ref (r/atom nil)
+        on-click-outside
+        (fn [e]
+          (when (and @open? @ref)
+            (when-not (.contains @ref (.-target e))
+              (reset! open? false))))]
+    (r/create-class
+     {:component-did-mount
+      (fn [] (.addEventListener js/document "mousedown" on-click-outside))
+      :component-will-unmount
+      (fn [] (.removeEventListener js/document "mousedown" on-click-outside))
+      :reagent-render
+      (fn []
+        [:div.language-switcher {:ref #(reset! ref %)
+                                 :class (when @open? "open")}
+         [:button.language-button
+          {:on-click #(swap! open? not)}
+          [:span.language-icon "\u2328"]
+          [:span.language-current (name locale)]]
+         (when @open?
+           [:div.language-dropdown
+            (for [l i18n/supported-locales]
+              ^{:key l}
+              [:button.language-option
+               {:class (when (= l locale) "active")
+                :on-click (fn []
+                            (rf/dispatch [:set-locale l])
+                            (reset! open? false))}
+               [:span.language-code (name l)]
+               [:span.language-name (i18n/locale-display-name l)]])])])})))
 
 (defn nav-bar []
   (let [current-view @(rf/subscribe [:current-view])
         auth @(rf/subscribe [:auth])]
     [:div.nav-bar
-     [:div.nav-brand "Focus"]
+     [:div.nav-brand (t :app/title)]
      [:div.nav-links
       [:a {:class (when (= current-view :board) "active")
            :on-click #(js/navigateTo "/")}
-       "Board"]
+       (t :nav/board)]
       [:a {:class (when (= current-view :list) "active")
            :on-click #(js/navigateTo "/")}
-       "List"]
+       (t :nav/list)]
       [create-ticket-modal]]
      [:div.nav-auth
+      [language-switcher]
       (when-let [user (get auth :user)]
         [:span.user-name (:username user)])
       [:button.logout-button
        {:on-click #(rf/dispatch [:logout])}
-       "Logout"]]]))
+       (t :nav/logout)]]]))
 
 (defn app-panel []
   (let [current-view @(rf/subscribe [:current-view])]
@@ -481,7 +609,7 @@
   (let [authenticated? @(rf/subscribe [:authenticated?])
         loading @(rf/subscribe [:loading])]
     (if loading
-      [:div.loading-screen "Loading..."]
+      [:div.loading-screen (t :loading)]
       (if authenticated?
         [app-panel]
         [landing-page]))))

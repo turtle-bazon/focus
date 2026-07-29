@@ -87,12 +87,32 @@
 (rf/reg-sub
  :comment-count
  (fn [db _]
-   (count (:comments db))))
+   (:comments-total db)))
 
 (rf/reg-sub
  :activity-count
  (fn [db _]
-   (count (:activity db))))
+   (:activity-total db)))
+
+(rf/reg-sub
+ :comments-loading
+ (fn [db _]
+   (:comments-loading db)))
+
+(rf/reg-sub
+ :activity-loading
+ (fn [db _]
+   (:activity-loading db)))
+
+(rf/reg-sub
+ :has-more-comments
+ (fn [db _]
+   (< (count (:comments db)) (:comments-total db))))
+
+(rf/reg-sub
+ :has-more-activity
+ (fn [db _]
+   (< (count (:activity db)) (:activity-total db))))
 
 (rf/reg-sub
  :active-tab

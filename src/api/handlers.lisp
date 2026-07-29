@@ -143,7 +143,8 @@
          (description (json-assoc :description body))
          (status (json-assoc :status body))
          (priority (json-assoc :priority body))
-         (assignee-id (json-assoc :assignee_id body)))
+         (assignee-id (json-assoc :assignee_id body))
+         (color (json-assoc :color body)))
     (unless title
       (return-from handle-create-ticket (error-response "Title is required")))
     (bind ((id (create-ticket title
@@ -153,7 +154,8 @@
                               :assignee-id (when assignee-id
                                             (if (stringp assignee-id)
                                                 (parse-integer assignee-id)
-                                                assignee-id)))))
+                                                assignee-id))
+                              :color color)))
       (let ((ticket (get-ticket-by-id id))
             (user-id (get-user-id-from-env env)))
         (log-activity id user-id "created"
@@ -171,6 +173,7 @@
                (status (json-assoc :status body))
                (priority (json-assoc :priority body))
                (assignee-id (json-assoc :assignee_id body))
+               (color (json-assoc :color body))
                (position (json-assoc :position body))
                (old-ticket (get-ticket-by-id id))
                (user-id (get-user-id-from-env env))
@@ -184,7 +187,8 @@
                                         :description description
                                         :status status
                                         :priority priority
-                                        :assignee-id assignee-id))))
+                                        :assignee-id assignee-id
+                                        :color color))))
           (if ticket
               (progn
                 (let ((status-changed (and old-ticket status (not (equal (getf old-ticket :status) status))))
@@ -268,7 +272,15 @@
   "GET /api/tickets/:id/activity"
   (let ((ticket-id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/activity$")))
     (if ticket-id
-        (json-response `(:activity ,(list-activity ticket-id)))
+        (let* ((query (getf env :query-string))
+               (params (parse-query-string query))
+               (limit-str (cdr (assoc "limit" params :test #'string=)))
+               (offset-str (cdr (assoc "offset" params :test #'string=)))
+               (limit (if limit-str (parse-integer limit-str) 20))
+               (offset (if offset-str (parse-integer offset-str) 0))
+               (activity (list-activity ticket-id :limit limit :offset offset))
+               (total (count-activity ticket-id)))
+          (json-response `(:activity ,activity :total ,total)))
         (error-response "Invalid ticket ID"))))
 
 ;;; Search handlers

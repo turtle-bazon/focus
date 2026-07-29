@@ -1,11 +1,12 @@
 (ns focus.handlers
   (:require [re-frame.core :as rf]
-            [focus.api :as api]))
+            [focus.api :as api]
+            [focus.i18n :as i18n]))
 
 (rf/reg-event-db
  :initialize-db
  (fn [_ _]
-   {     :current-view :landing
+   {:current-view :landing
     :auth nil
     :app-info nil
     :tickets []
@@ -13,11 +14,16 @@
     :labels []
     :current-ticket nil
     :comments []
+    :comments-total 0
+    :comments-loading false
     :activity []
+    :activity-total 0
+    :activity-loading false
     :search-query ""
     :loading true
     :error nil
-    :active-tab :comments}))
+    :active-tab :comments
+    :locale (i18n/get-saved-locale)}))
 
 (rf/reg-event-db
  :set-view
@@ -140,8 +146,8 @@
                        tickets)]
      (api/update-ticket id {:status status}
       (fn [_]
-        (api/fetch-activity id
-         (fn [resp] (rf/dispatch [:set-activity (:activity resp)]))
+        (api/fetch-activity id {:limit 20 :offset 0}
+         (fn [resp] (rf/dispatch [:set-activity-initial (:activity resp) (:total resp)]))
          (fn [_])))
       (fn [error]
         (rf/dispatch [:set-error (str "Failed to update ticket: " error)])
@@ -166,12 +172,12 @@
          current-ticket (:current-ticket db)
          new-current (when (and current-ticket (= (:id current-ticket) id))
                        (assoc current-ticket :status status :priority priority))]
-      (api/update-ticket id (cond-> {:status status :priority priority}
-                             position (assoc :position position))
-       (fn [_]
-         (api/fetch-activity id
-          (fn [resp] (rf/dispatch [:set-activity (:activity resp)]))
-          (fn [_])))
+       (api/update-ticket id (cond-> {:status status :priority priority}
+                              position (assoc :position position))
+        (fn [_]
+          (api/fetch-activity id {:limit 20 :offset 0}
+           (fn [resp] (rf/dispatch [:set-activity-initial (:activity resp) (:total resp)]))
+           (fn [_])))
       (fn [error]
         (rf/dispatch [:set-error (str "Failed to reorder ticket: " error)])
         (rf/dispatch [:fetch-tickets {}])))
@@ -187,11 +193,11 @@
          current-ticket (:current-ticket db)
          new-current (when (and current-ticket (= (:id current-ticket) id))
                        (assoc current-ticket field value))]
-      (api/update-ticket id {field value}
-       (fn [_]
-         (api/fetch-activity id
-          (fn [resp] (rf/dispatch [:set-activity (:activity resp)]))
-          (fn [_])))
+       (api/update-ticket id {field value}
+        (fn [_]
+          (api/fetch-activity id {:limit 20 :offset 0}
+           (fn [resp] (rf/dispatch [:set-activity-initial (:activity resp) (:total resp)]))
+           (fn [_])))
        (fn [error]
          (rf/dispatch [:set-error (str "Failed to update ticket: " error)])
          (rf/dispatch [:fetch-tickets {}])))
@@ -267,17 +273,19 @@
       (rf/dispatch [:set-current-ticket response]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to fetch ticket: " error)])))
-   (api/fetch-comments id
+   (api/fetch-comments id {:limit 20 :offset 0}
     (fn [response]
-      (rf/dispatch [:set-comments (:comments response)]))
+      (rf/dispatch [:set-comments-initial (:comments response) (:total response)]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to fetch comments: " error)])))
-   (api/fetch-activity id
+   (api/fetch-activity id {:limit 20 :offset 0}
     (fn [response]
-      (rf/dispatch [:set-activity (:activity response)]))
+      (rf/dispatch [:set-activity-initial (:activity response) (:total response)]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to fetch activity: " error)])))
-   {:db (assoc db :current-ticket nil :comments [] :activity [])}))
+   {:db (assoc db :current-ticket nil :comments [] :activity []
+               :comments-total 0 :comments-loading false
+               :activity-total 0 :activity-loading false)}))
 
 (rf/reg-event-db
  :set-current-ticket
@@ -285,14 +293,34 @@
    (assoc db :current-ticket ticket)))
 
 (rf/reg-event-db
- :set-comments
- (fn [db [_ comments]]
-   (assoc db :comments comments)))
+ :set-comments-initial
+ (fn [db [_ comments total]]
+   (assoc db :comments (vec comments) :comments-total total :comments-loading false)))
 
 (rf/reg-event-db
- :set-activity
+ :set-activity-initial
+ (fn [db [_ activity total]]
+   (assoc db :activity (vec activity) :activity-total total :activity-loading false)))
+
+(rf/reg-event-db
+ :set-comments-more
+ (fn [db [_ comments]]
+   (update db :comments #(into (vec %) comments))))
+
+(rf/reg-event-db
+ :set-activity-more
  (fn [db [_ activity]]
-   (assoc db :activity activity)))
+   (update db :activity #(into (vec %) activity))))
+
+(rf/reg-event-db
+ :set-comments-loading
+ (fn [db [_ loading]]
+   (assoc db :comments-loading loading)))
+
+(rf/reg-event-db
+ :set-activity-loading
+ (fn [db [_ loading]]
+   (assoc db :activity-loading loading)))
 
 (rf/reg-event-fx
  :create-comment
@@ -304,11 +332,39 @@
                      :body (:body data)
                      :created_at (.toISOString (js/Date.))}]
         (rf/dispatch [:add-comment comment ticket-id])
-        (api/fetch-activity ticket-id
-         (fn [resp] (rf/dispatch [:set-activity (:activity resp)]))
+        (api/fetch-activity ticket-id {:limit 20 :offset 0}
+         (fn [resp] (rf/dispatch [:set-activity-initial (:activity resp) (:total resp)]))
          (fn [_]))))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create comment: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :load-more-comments
+ (fn [{:keys [db]} [_ ticket-id]]
+   (when-not (:comments-loading db)
+     (let [offset (count (:comments db))]
+       (rf/dispatch [:set-comments-loading true])
+       (api/fetch-comments ticket-id {:limit 20 :offset offset}
+        (fn [response]
+          (rf/dispatch [:set-comments-more (:comments response)])
+          (rf/dispatch [:set-comments-loading false]))
+        (fn [_error]
+          (rf/dispatch [:set-comments-loading false])))))
+   {:db db}))
+
+(rf/reg-event-fx
+ :load-more-activity
+ (fn [{:keys [db]} [_ ticket-id]]
+   (when-not (:activity-loading db)
+     (let [offset (count (:activity db))]
+       (rf/dispatch [:set-activity-loading true])
+       (api/fetch-activity ticket-id {:limit 20 :offset offset}
+        (fn [response]
+          (rf/dispatch [:set-activity-more (:activity response)])
+          (rf/dispatch [:set-activity-loading false]))
+        (fn [_error]
+          (rf/dispatch [:set-activity-loading false])))))
    {:db db}))
 
 (rf/reg-event-db
@@ -340,5 +396,7 @@
  (fn [db [_ comment ticket-id]]
    (if (and (= (:current-view db) :detail)
             (= (:id (:current-ticket db)) ticket-id))
-      (update db :comments #(vec (cons comment %)))
+      (-> db
+          (update :comments #(vec (cons comment %)))
+          (update :comments-total inc))
      db)))

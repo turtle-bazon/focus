@@ -36,13 +36,22 @@
    ticket-id user-id action (details-to-json details)
    :single))
 
-(defun list-activity (ticket-id)
-  "List all activity for a ticket."
+(defun list-activity (ticket-id &key (limit 20) (offset 0))
+  "List activity for a ticket with pagination."
   (pg-query-params
    "SELECT id, ticket_id, user_id, action, details, created_at
     FROM activity WHERE ticket_id = $1
-    ORDER BY created_at DESC"
-   (list ticket-id)))
+    ORDER BY created_at DESC
+    LIMIT $2 OFFSET $3"
+   (list ticket-id limit offset)))
+
+(defun count-activity (ticket-id)
+  "Count total activity entries for a ticket."
+  (let ((result (pg-query-params
+                 "SELECT COUNT(*) as count FROM activity WHERE ticket_id = $1"
+                 (list ticket-id))))
+    (when result
+      (getf (car result) :count))))
 
 (defun get-activity-by-id (id)
   "Get activity by ID. Returns plist or nil."

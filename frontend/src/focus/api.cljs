@@ -71,14 +71,14 @@
 (defn create-label [data on-success on-error]
   (post "/labels" data on-success on-error))
 
-(defn fetch-comments [ticket-id on-success on-error]
-  (get (str "/tickets/" ticket-id "/comments") nil on-success on-error))
+(defn fetch-comments [ticket-id params on-success on-error]
+  (get (str "/tickets/" ticket-id "/comments") params on-success on-error))
 
 (defn create-comment [ticket-id data on-success on-error]
   (post (str "/tickets/" ticket-id "/comments") data on-success on-error))
 
-(defn fetch-activity [ticket-id on-success on-error]
-  (get (str "/tickets/" ticket-id "/activity") nil on-success on-error))
+(defn fetch-activity [ticket-id params on-success on-error]
+  (get (str "/tickets/" ticket-id "/activity") params on-success on-error))
 
 (defn fetch-webhooks [on-success on-error]
   (get "/webhooks" nil on-success on-error))

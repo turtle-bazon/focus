@@ -163,4 +163,7 @@ UPDATE tickets SET position_num = position, position_den = 1;
 ALTER TABLE tickets DROP COLUMN position;
 "
 )
+    ("0014-0014-ticket-colo"
+     :up "ALTER TABLE tickets ADD COLUMN color VARCHAR(7) DEFAULT '#6b7280';"
+)
 ))

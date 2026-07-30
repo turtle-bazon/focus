@@ -1,11 +1,230 @@
 (ns focus.views
   (:require [re-frame.core :as rf]
             [reagent.core :as r]
-            [focus.i18n :as i18n]))
+            [clojure.string :as str]
+            [focus.i18n :as i18n]
+            [focus.markdown :as md]))
 
 (defn t [key]
   (let [locale @(rf/subscribe [:locale])]
     (i18n/t locale key)))
+
+(defn- extract-list-items [list-html]
+  (let [li-re #"<li[^>]*>([\s\S]*?)</li>"]
+    (re-seq li-re list-html)))
+
+(defn- process-list-blocks [html]
+  (let [ol-re #"<ol[^>]*>([\s\S]*?)</ol>"
+        ul-re #"<ul[^>]*>([\s\S]*?)</ul>"
+        li-re #"<li[^>]*>([\s\S]*?)</li>"]
+    (loop [in html
+           out ""]
+      (let [ol-match (re-find ol-re in)
+            ul-match (re-find ul-re in)]
+        (cond
+          (nil? ol-match) (if (nil? ul-match)
+                            (str out (str/replace in li-re "- $1\n"))
+                            (let [full (first ul-match)
+                                  idx (.indexOf in full)
+                                  items (re-seq li-re full)
+                                  before (subs in 0 idx)
+                                  after (subs in (+ idx (count full)))
+                                  converted (apply str (map (fn [m] (str "- " (second m) "\n")) items))]
+                              (recur after (str out before converted))))
+          :else (let [full (first ol-match)
+                      idx (.indexOf in full)
+                      items (re-seq li-re full)
+                      before (subs in 0 idx)
+                      after (subs in (+ idx (count full)))
+                      converted (apply str (map-indexed (fn [i m] (str (inc i) ". " (second m) "\n")) items))]
+                  (recur after (str out before converted))))))))
+
+(defn editor-html->markdown [html]
+  (if-not (string? html)
+    ""
+    (-> html
+        (str/replace #"<strong[^>]*>(.*?)</strong>" "**$1**")
+        (str/replace #"<b[^>]*>(.*?)</b>" "**$1**")
+        (str/replace #"<em[^>]*>(.*?)</em>" "*$1*")
+        (str/replace #"<i[^>]*>(.*?)</i>" "*$1*")
+        (str/replace #"<s[^>]*>(.*?)</s>" "~~$1~~")
+        (str/replace #"<del[^>]*>(.*?)</del>" "~~$1~~")
+        (str/replace #"<code[^>]*>(.*?)</code>" "`$1`")
+        (str/replace #"<a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>" "[$2]($1)")
+        (str/replace #"<img[^>]*src=\"([^\"]+)\"[^>]*/?>" "![]($1)")
+        (str/replace #"<blockquote[^>]*>(.*?)</blockquote>" "> $1")
+        process-list-blocks
+        (str/replace #"<br\s*/?>" "\n")
+        (str/replace #"</div>|</p>" "\n")
+        (str/replace #"<[^>]+" "")
+        (str/replace #"&amp;" "&")
+        (str/replace #"&lt;" "<")
+        (str/replace #"&gt;" ">")
+        (str/replace #"\u200B" "")
+        (str/replace #"&nbsp;" " ")
+        (str/replace #"\n\s*\n\s*\n" "\n\n")
+        str/trim)))
+
+(def ^:private editor-content-cb (atom nil))
+
+(defn editor-sync-content []
+  (when-let [cb @editor-content-cb]
+    (let [sel (.getSelection js/window)]
+      (when (and sel (pos? (.-rangeCount sel)))
+        (let [range (.getRangeAt sel 0)
+              container (.-startContainer range)
+              el (if (= 3 (.-nodeType container))
+                   (.-parentElement container)
+                   container)
+              ce (.closest el "[contenteditable=true]")]
+          (when ce
+            (let [md (editor-html->markdown (.-innerHTML ce))]
+              (cb md))))))))
+
+(defn editor-exec-command [command & args]
+  (.execCommand js/document command false (first args)))
+
+(defn editor-wrap-tag [tag]
+  (case tag
+    "strong" (editor-exec-command "bold")
+    "em" (editor-exec-command "italic")
+    "s" (editor-exec-command "strikeThrough")
+    "del" (editor-exec-command "strikeThrough")
+    nil)
+  (editor-sync-content))
+
+(defn editor-insert-block-tag [tag]
+  (let [sel (.getSelection js/window)]
+    (when (and sel (pos? (.-rangeCount sel)))
+      (let [range (.getRangeAt sel 0)]
+        (if (not (.-collapsed range))
+          (let [fragment (.cloneContents range)
+                wrapper (.createElement js/document tag)]
+            (.appendChild wrapper fragment)
+            (.deleteContents range)
+            (.insertNode range wrapper))
+          (let [wrapper (.createElement js/document tag)]
+            (.appendChild wrapper (.createTextNode js/document "\u200B"))
+            (.insertNode range wrapper)
+            (.setStart range wrapper 0)
+            (.collapse range true)))
+        (editor-sync-content)))))
+
+(defn editor-insert-link-tag []
+  (let [sel (.getSelection js/window)]
+    (when (and sel (pos? (.-rangeCount sel)))
+      (let [range (.getRangeAt sel 0)
+            url (js/prompt "URL:")]
+        (when (seq url)
+          (if (not (.-collapsed range))
+            (let [fragment (.cloneContents range)
+                  a (.createElement js/document "a")]
+              (set! (.-href a) url)
+              (set! (.-target a) "_blank")
+              (.appendChild a fragment)
+              (.deleteContents range)
+              (.insertNode range a))
+            (let [a (.createElement js/document "a")]
+              (set! (.-href a) url)
+              (set! (.-target a) "_blank")
+              (set! (.-textContent a) url)
+              (.insertNode range a)
+              (.setStart range a (.-textContent.length a))
+              (.collapse range true)))
+          (editor-sync-content))))))
+
+(defn editor-insert-img-tag []
+  (let [sel (.getSelection js/window)]
+    (when (and sel (pos? (.-rangeCount sel)))
+      (let [range (.getRangeAt sel 0)
+            url (js/prompt "Image URL:")]
+        (when (seq url)
+          (let [img (.createElement js/document "img")]
+            (set! (.-src img) url)
+            (set! (.-style img) "max-width:100%;border-radius:6px")
+            (.insertNode range img)
+            (.setStartAfter range img)
+            (.collapse range true)
+            (editor-sync-content)))))))
+
+(defn editor-insert-list-tag [tag]
+  (let [sel (.getSelection js/window)]
+    (when (and sel (pos? (.-rangeCount sel)))
+      (let [range (.getRangeAt sel 0)
+            li (.createElement js/document "li")
+            list-el (.createElement js/document tag)]
+        (if (not (.-collapsed range))
+          (let [fragment (.cloneContents range)]
+            (.appendChild li fragment)
+            (.deleteContents range))
+          (.appendChild li (.createTextNode js/document "\u200B")))
+        (.appendChild list-el li)
+        (.insertNode range list-el)
+        (editor-sync-content)))))
+
+(defn editor-toolbar-button [label title on-click]
+  (let [saved-range (r/atom nil)]
+    (fn [label title on-click]
+      [:button.editor-toolbar-btn
+       {:type "button"
+        :title title
+        :on-mouse-down (fn [e]
+                         (.preventDefault e)
+                         (let [sel (.getSelection js/window)]
+                           (when (and sel (pos? (.-rangeCount sel)))
+                             (reset! saved-range (.cloneRange (.getRangeAt sel 0))))))
+        :on-click (fn [e]
+                    (.preventDefault e)
+                    (when-let [range @saved-range]
+                      (let [sel (.getSelection js/window)
+                            sc (.-startContainer range)
+                            el (if (= 3 (.-nodeType sc)) (.-parentElement sc) sc)]
+                        (.removeAllRanges sel)
+                        (.addRange sel range)
+                        (when-let [ce (.closest el "[contenteditable=true]")]
+                          (.focus ce))))
+                    (on-click))}
+       label])))
+
+(defn editor-toolbar []
+  [:div.editor-toolbar
+   [editor-toolbar-button [:strong "B"] (t :editor/bold) #(editor-wrap-tag "strong")]
+   [editor-toolbar-button [:em "I"] (t :editor/italic) #(editor-wrap-tag "em")]
+   [editor-toolbar-button [:s "S"] (t :editor/strike) #(editor-wrap-tag "s")]
+   [:div.editor-toolbar-separator]
+   [editor-toolbar-button "\u2022" (t :editor/bullet-list) #(editor-insert-list-tag "ul")]
+   [editor-toolbar-button "1." (t :editor/ordered-list) #(editor-insert-list-tag "ol")]
+   [:div.editor-toolbar-separator]
+   [editor-toolbar-button "\u201C" (t :editor/quote) #(editor-insert-block-tag "blockquote")]
+   [editor-toolbar-button [:code "</>"] (t :editor/code) #(editor-insert-block-tag "pre")]
+   [:div.editor-toolbar-separator]
+   [editor-toolbar-button "\uD83D\uDD17" (t :editor/link) editor-insert-link-tag]
+   [editor-toolbar-button "\uD83D\uDDBC" (t :editor/image) editor-insert-img-tag]])
+
+(defn wysiwyg-editor [opts]
+  (let [local-ref (r/atom nil)
+        editor-ref (or (:editor-ref opts) local-ref)
+        mounted (r/atom false)]
+    (r/create-class
+     {:should-component-update (fn [_ _ _] false)
+      :reagent-render
+      (fn [opts]
+        [:div.markdown-editor
+         [editor-toolbar]
+         [:div.markdown-editor-container
+          [:div.markdown-editor-content
+           {:ref (fn [el]
+                   (reset! editor-ref el)
+                   (when (and el (not @mounted) (:on-change opts))
+                     (reset! mounted true)
+                     (reset! editor-content-cb (:on-change opts))
+                     (set! (.-innerHTML el) (or (:initial-content opts) ""))
+                     (.addEventListener el "input"
+                                        (fn [_]
+                                          (let [md (editor-html->markdown (.-innerHTML el))]
+                                            ((:on-change opts) md))))))
+            :contentEditable true
+            :data-placeholder (:placeholder opts "Write a comment...")}]]])})))
 
 (defn format-date [iso-str]
   (when iso-str
@@ -325,19 +544,24 @@
          (or (:username user) (str (t :ticket/user-prefix) (:assignee_id ticket))))])]])
 
 (defn comment-form [ticket-id new-comment user-id]
-  [:div.comment-form
-   [:textarea {:value @new-comment
-              :on-change #(reset! new-comment (-> % .-target .-value))
-              :placeholder (t :comment/add-placeholder)}]
-   [:button.submit-button
-    {:on-click (fn []
-                 (when (seq @new-comment)
-                   (rf/dispatch [:create-comment
-                                 ticket-id
-                                 {:user_id user-id
-                                  :body @new-comment}])
-                   (reset! new-comment "")))}
-    (t :comment/add-btn)]])
+  (let [editor-ref (r/atom nil)]
+    (fn [ticket-id new-comment user-id]
+      [:div.comment-form
+       [wysiwyg-editor {:on-change #(reset! new-comment %)
+                         :placeholder (t :comment/add-placeholder)
+                         :editor-ref editor-ref}]
+       [:button.submit-button
+        {:type "button"
+         :on-click (fn []
+                     (when (seq @new-comment)
+                       (rf/dispatch [:create-comment
+                                     ticket-id
+                                     {:user_id user-id
+                                      :body @new-comment}])
+                       (reset! new-comment "")
+                       (when-let [el @editor-ref]
+                         (set! (.-innerHTML el) ""))))}
+        (t :comment/add-btn)]])))
 
 (defn comment-item [comment users]
   ^{:key (:id comment)}
@@ -347,7 +571,9 @@
      (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
        (or (:username author) (str (t :ticket/user-prefix) (:user_id comment))))]
     [:span.comment-date (format-date (:created_at comment))]]
-   [:div.comment-body (:body comment)]])
+   [:div.comment-body
+    {:dangerouslySetInnerHTML
+     {:__html (or (md/render-markdown (:body comment)) "")}}]])
 
 (defn comments-tab [ticket new-comment user-id users]
   (let [container (r/atom nil)

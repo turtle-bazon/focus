@@ -905,3 +905,233 @@ body {
   height: 1px;
   width: 100%;
 }
+
+/* Tiptap Editor */
+/* Markdown Editor */
+.markdown-editor {
+  border: 1px solid #334155;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 8px;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  align-items: center;
+}
+
+.editor-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.editor-toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+}
+
+.editor-toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: #334155;
+  margin: 0 4px;
+}
+
+.markdown-editor-container {
+  min-height: 100px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.markdown-editor-content {
+  padding: 12px;
+  color: #e2e8f0;
+  font-size: 14px;
+  line-height: 1.6;
+  outline: none;
+  min-height: 80px;
+}
+
+.markdown-editor-content:empty::before {
+  content: attr(data-placeholder);
+  color: #475569;
+  pointer-events: none;
+}
+
+.markdown-editor-content p {
+  margin: 0 0 8px 0;
+}
+
+.markdown-editor-content p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-editor-content strong {
+  font-weight: 700;
+}
+
+.markdown-editor-content em {
+  font-style: italic;
+}
+
+.markdown-editor-content s {
+  text-decoration: line-through;
+}
+
+.markdown-editor-content code {
+  background: #0f172a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+  color: #f59e0b;
+}
+
+.markdown-editor-content pre {
+  background: #0f172a;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.markdown-editor-content pre code {
+  background: none;
+  padding: 0;
+  color: #e2e8f0;
+}
+
+.markdown-editor-content blockquote {
+  border-left: 3px solid #3b82f6;
+  padding-left: 12px;
+  margin: 8px 0;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.markdown-editor-content ul,
+.markdown-editor-content ol {
+  padding-left: 24px;
+  margin: 8px 0;
+}
+
+.markdown-editor-content li {
+  margin: 4px 0;
+}
+
+.markdown-editor-content img {
+  max-width: 100%;
+  border-radius: 6px;
+  margin: 8px 0;
+}
+
+.markdown-editor-content a {
+  color: #60a5fa;
+  text-decoration: none;
+}
+
+.markdown-editor-content a:hover {
+  text-decoration: underline;
+}
+
+/* Rendered Markdown in Comments */
+.comment-body h1,
+.comment-body h2,
+.comment-body h3 {
+  margin: 12px 0 8px 0;
+  font-weight: 600;
+}
+
+.comment-body h1 { font-size: 1.4em; }
+.comment-body h2 { font-size: 1.2em; }
+.comment-body h3 { font-size: 1.1em; }
+
+.comment-body p {
+  margin: 0 0 8px 0;
+}
+
+.comment-body p:last-child {
+  margin-bottom: 0;
+}
+
+.comment-body ul,
+.comment-body ol {
+  padding-left: 24px;
+  margin: 8px 0;
+}
+
+.comment-body li {
+  margin: 4px 0;
+}
+
+.comment-body blockquote {
+  border-left: 3px solid #3b82f6;
+  padding-left: 12px;
+  margin: 8px 0;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.comment-body code {
+  background: #0f172a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+  color: #f59e0b;
+}
+
+.comment-body pre {
+  background: #0f172a;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.comment-body pre code {
+  background: none;
+  padding: 0;
+  color: #e2e8f0;
+}
+
+.comment-body img {
+  max-width: 100%;
+  border-radius: 6px;
+  margin: 8px 0;
+}
+
+.comment-body a {
+  color: #60a5fa;
+  text-decoration: none;
+}
+
+.comment-body a:hover {
+  text-decoration: underline;
+}
+
+.comment-body strong {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.comment-body em {
+  font-style: italic;
+  color: #cbd5e1;
+}

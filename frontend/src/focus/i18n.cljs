@@ -56,8 +56,17 @@
     :time/min-ago " min ago"
     :time/mins-ago " mins ago"
     :time/hour-ago " hour ago"
-    :time/hours-ago " hours ago"
-    :loading "Loading..."}
+     :time/hours-ago " hours ago"
+     :editor/bold "Bold"
+     :editor/italic "Italic"
+     :editor/strike "Strikethrough"
+     :editor/bullet-list "Bullet List"
+     :editor/ordered-list "Ordered List"
+     :editor/quote "Quote"
+     :editor/code "Code"
+     :editor/link "Link"
+     :editor/image "Image"
+     :loading "Loading..."}
 
    ;; ===== RUSSIAN =====
    :ru
@@ -110,8 +119,17 @@
     :time/min-ago " мин. назад"
     :time/mins-ago " мин. назад"
     :time/hour-ago " ч. назад"
-    :time/hours-ago " ч. назад"
-    :loading "Загрузка..."}
+     :time/hours-ago " ч. назад"
+     :editor/bold "Полужирный"
+     :editor/italic "Курсив"
+     :editor/strike "Зачёркнутый"
+     :editor/bullet-list "Маркированный список"
+     :editor/ordered-list "Нумерованный список"
+     :editor/quote "Цитата"
+     :editor/code "Код"
+     :editor/link "Ссылка"
+     :editor/image "Изображение"
+     :loading "Загрузка..."}
 
    ;; ===== TURKISH =====
    :tr
@@ -164,8 +182,17 @@
     :time/min-ago " dk önce"
     :time/mins-ago " dk önce"
     :time/hour-ago " sa önce"
-    :time/hours-ago " sa önce"
-    :loading "Yükleniyor..."}
+     :time/hours-ago " sa önce"
+     :editor/bold "Kalın"
+     :editor/italic "İtalik"
+     :editor/strike "Üstü Çizili"
+     :editor/bullet-list "Madde İşaretli Liste"
+     :editor/ordered-list "Numaralı Liste"
+     :editor/quote "Alıntı"
+     :editor/code "Kod"
+     :editor/link "Bağlantı"
+     :editor/image "Görsel"
+     :loading "Yükleniyor..."}
 
    ;; ===== UKRAINIAN =====
    :uk
@@ -218,8 +245,17 @@
     :time/min-ago " хв. тому"
     :time/mins-ago " хв. тому"
     :time/hour-ago " год. тому"
-    :time/hours-ago " год. тому"
-    :loading "Завантаження..."}
+     :time/hours-ago " год. тому"
+     :editor/bold "Жирний"
+     :editor/italic "Курсив"
+     :editor/strike "Закреслений"
+     :editor/bullet-list "Маркований список"
+     :editor/ordered-list "Нумерований список"
+     :editor/quote "Цитата"
+     :editor/code "Код"
+     :editor/link "Посилання"
+     :editor/image "Зображення"
+     :loading "Завантаження..."}
 
    ;; ===== MANDARIN CHINESE =====
    :zh
@@ -272,8 +308,17 @@
     :time/min-ago " 分钟前"
     :time/mins-ago " 分钟前"
     :time/hour-ago " 小时前"
-    :time/hours-ago " 小时前"
-    :loading "加载中..."}
+     :time/hours-ago " 小时前"
+     :editor/bold "粗体"
+     :editor/italic "斜体"
+     :editor/strike "删除线"
+     :editor/bullet-list "无序列表"
+     :editor/ordered-list "有序列表"
+     :editor/quote "引用"
+     :editor/code "代码"
+     :editor/link "链接"
+     :editor/image "图片"
+     :loading "加载中..."}
 
    ;; ===== FRENCH =====
    :fr
@@ -326,8 +371,17 @@
     :time/min-ago " min il y a"
     :time/mins-ago " min il y a"
     :time/hour-ago " h il y a"
-    :time/hours-ago " h il y a"
-    :loading "Chargement..."}
+     :time/hours-ago " h il y a"
+     :editor/bold "Gras"
+     :editor/italic "Italique"
+     :editor/strike "Barré"
+     :editor/bullet-list "Liste à puces"
+     :editor/ordered-list "Liste numérotée"
+     :editor/quote "Citation"
+     :editor/code "Code"
+     :editor/link "Lien"
+     :editor/image "Image"
+     :loading "Chargement..."}
 
    ;; ===== GERMAN =====
    :de
@@ -380,8 +434,17 @@
     :time/min-ago " Min. her"
     :time/mins-ago " Min. her"
     :time/hour-ago " Std. her"
-    :time/hours-ago " Std. her"
-    :loading "Laden..."}
+     :time/hours-ago " Std. her"
+     :editor/bold "Fett"
+     :editor/italic "Kursiv"
+     :editor/strike "Durchgestrichen"
+     :editor/bullet-list "Aufzählungsliste"
+     :editor/ordered-list "Nummerierte Liste"
+     :editor/quote "Zitat"
+     :editor/code "Code"
+     :editor/link "Link"
+     :editor/image "Bild"
+     :loading "Laden..."}
 
    ;; ===== SPANISH =====
    :es
@@ -434,8 +497,17 @@
     :time/min-ago " min atrás"
     :time/mins-ago " min atrás"
     :time/hour-ago " h atrás"
-    :time/hours-ago " h atrás"
-    :loading "Cargando..."}
+     :time/hours-ago " h atrás"
+     :editor/bold "Negrita"
+     :editor/italic "Cursiva"
+     :editor/strike "Tachado"
+     :editor/bullet-list "Lista con viñetas"
+     :editor/ordered-list "Lista numerada"
+     :editor/quote "Cita"
+     :editor/code "Código"
+     :editor/link "Enlace"
+     :editor/image "Imagen"
+     :loading "Cargando..."}
 
    ;; ===== JAPANESE =====
    :ja
@@ -488,8 +560,17 @@
     :time/min-ago " 分前"
     :time/mins-ago " 分前"
     :time/hour-ago " 時間前"
-    :time/hours-ago " 時間前"
-    :loading "読み込み中..."}
+     :time/hours-ago " 時間前"
+     :editor/bold "太字"
+     :editor/italic "斜体"
+     :editor/strike "取り消し線"
+     :editor/bullet-list "箇条書きリスト"
+     :editor/ordered-list "番号付きリスト"
+     :editor/quote "引用"
+     :editor/code "コード"
+     :editor/link "リンク"
+     :editor/image "画像"
+     :loading "読み込み中..."}
 
    ;; ===== HINDI =====
    :hi
@@ -542,8 +623,17 @@
     :time/min-ago " मिनट पहले"
     :time/mins-ago " मिनट पहले"
     :time/hour-ago " घंटा पहले"
-    :time/hours-ago " घंटे पहले"
-    :loading "लोड हो रहा है..."}
+     :time/hours-ago " घंटे पहले"
+     :editor/bold "बोल्ड"
+     :editor/italic "इटैलिक"
+     :editor/strike "स्ट्राइकथ्रू"
+     :editor/bullet-list "बुलेट लिस्ट"
+     :editor/ordered-list "ऑर्डर्ड लिस्ट"
+     :editor/quote "उद्धरण"
+     :editor/code "कोड"
+     :editor/link "लिंक"
+     :editor/image "चित्र"
+     :loading "लोड हो रहा है..."}
 
    ;; ===== ITALIAN =====
    :it
@@ -596,8 +686,17 @@
     :time/min-ago " min fa"
     :time/mins-ago " min fa"
     :time/hour-ago " ora fa"
-    :time/hours-ago " ore fa"
-    :loading "Caricamento..."}
+     :time/hours-ago " ore fa"
+     :editor/bold "Grassetto"
+     :editor/italic "Corsivo"
+     :editor/strike "Barrato"
+     :editor/bullet-list "Elenco puntato"
+     :editor/ordered-list "Elenco numerato"
+     :editor/quote "Citazione"
+     :editor/code "Codice"
+     :editor/link "Collegamento"
+     :editor/image "Immagine"
+     :loading "Caricamento..."}
 
    ;; ===== ARABIC =====
    :ar
@@ -650,8 +749,17 @@
     :time/min-ago " دقيقة مضت"
     :time/mins-ago " دقائق مضت"
     :time/hour-ago " ساعة مضت"
-    :time/hours-ago " ساعات مضت"
-    :loading "جاري التحميل..."}
+     :time/hours-ago " ساعات مضت"
+     :editor/bold "عريض"
+     :editor/italic "مائل"
+     :editor/strike "يتوسطه خط"
+     :editor/bullet-list "قائمة نقطية"
+     :editor/ordered-list "قائمة مرقمة"
+     :editor/quote "اقتباس"
+     :editor/code "كود"
+     :editor/link "رابط"
+     :editor/image "صورة"
+     :loading "جاري التحميل..."}
 
    ;; ===== PORTUGUESE =====
    :pt
@@ -704,8 +812,17 @@
     :time/min-ago " min atrás"
     :time/mins-ago " min atrás"
     :time/hour-ago " h atrás"
-    :time/hours-ago " h atrás"
-    :loading "Carregando..."}
+     :time/hours-ago " h atrás"
+     :editor/bold "Negrito"
+     :editor/italic "Itálico"
+     :editor/strike "Riscado"
+     :editor/bullet-list "Lista com marcadores"
+     :editor/ordered-list "Lista numerada"
+     :editor/quote "Citação"
+     :editor/code "Código"
+     :editor/link "Link"
+     :editor/image "Imagem"
+     :loading "Carregando..."}
 
    ;; ===== KOREAN =====
    :ko
@@ -758,8 +875,17 @@
     :time/min-ago " 분 전"
     :time/mins-ago " 분 전"
     :time/hour-ago " 시간 전"
-    :time/hours-ago " 시간 전"
-    :loading "로딩 중..."}
+     :time/hours-ago " 시간 전"
+     :editor/bold "굵게"
+     :editor/italic "기울임꼴"
+     :editor/strike "취소선"
+     :editor/bullet-list "글머리 기호 목록"
+     :editor/ordered-list "번호 매기기 목록"
+     :editor/quote "인용"
+     :editor/code "코드"
+     :editor/link "링크"
+     :editor/image "이미지"
+     :loading "로딩 중..."}
 
    ;; ===== DUTCH =====
    :nl
@@ -812,8 +938,17 @@
     :time/min-ago " min geleden"
     :time/mins-ago " min geleden"
     :time/hour-ago " uur geleden"
-    :time/hours-ago " uur geleden"
-    :loading "Laden..."}
+     :time/hours-ago " uur geleden"
+     :editor/bold "Vetgedrukt"
+     :editor/italic "Cursief"
+     :editor/strike "Doorgestreept"
+     :editor/bullet-list "Ongeordende lijst"
+     :editor/ordered-list "Geordende lijst"
+     :editor/quote "Citaat"
+     :editor/code "Code"
+     :editor/link "Link"
+     :editor/image "Afbeelding"
+     :loading "Laden..."}
 
    ;; ===== POLISH =====
    :pl
@@ -866,8 +1001,17 @@
     :time/min-ago " min temu"
     :time/mins-ago " min temu"
     :time/hour-ago " godz. temu"
-    :time/hours-ago " godz. temu"
-    :loading "Ładowanie..."}})
+     :time/hours-ago " godz. temu"
+     :editor/bold "Pogrubienie"
+     :editor/italic "Kursywa"
+     :editor/strike "Przekreślenie"
+     :editor/bullet-list "Lista punktowa"
+     :editor/ordered-list "Lista numerowana"
+     :editor/quote "Cytat"
+     :editor/code "Kod"
+     :editor/link "Link"
+     :editor/image "Obraz"
+     :loading "Ładowanie..."}})
 
 (defn t
   "Look up translation for key in given locale, falling back to English."

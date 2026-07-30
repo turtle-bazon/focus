@@ -281,7 +281,7 @@
                              (reset! saved-range (.cloneRange (.getRangeAt sel 0))))))
         :on-click (fn [e]
                     (.preventDefault e)
-                    (when-let [range @saved-range]
+                    (if-let [range @saved-range]
                       (let [sel (.getSelection js/window)
                             sc (.-startContainer range)
                             el (if (= 3 (.-nodeType sc)) (.-parentElement sc) sc)]
@@ -289,7 +289,20 @@
                         (.addRange sel range)
                         (when (and el (.-closest el))
                           (when-let [ce (.closest el "[contenteditable=true]")]
-                            (.focus ce)))))
+                            (.focus ce))))
+                      (when-let [ce @editor-ref-atom]
+                        (let [sel (.getSelection js/window)]
+                          (.focus ce)
+                          (let [range (.createRange js/document)]
+                            (if (pos? (.-length (.-childNodes ce)))
+                              (let [last-child (.-lastChild ce)]
+                                (if (= 3 (.-nodeType last-child))
+                                  (.setStart range last-child (.-length last-child))
+                                  (.selectNodeContents range last-child))
+                                (.collapse range false))
+                              (.selectNodeContents range ce))
+                            (.removeAllRanges sel)
+                            (.addRange sel range)))))
                     (when-not (cursor-in-code-block?)
                       (on-click)))}
        label])))

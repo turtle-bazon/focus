@@ -344,7 +344,8 @@
                                              ((:on-change opts) md))))
                       (.addEventListener el "keydown"
                                          (fn [e]
-                                           (when (= (.-key e) "Enter")
+                                            (when (and (= (.-key e) "Enter")
+                                                       (.-shiftKey e))
                                              (let [sel (.getSelection js/window)]
                                                (when (and sel (pos? (.-rangeCount sel)))
                                                  (let [range (.getRangeAt sel 0)

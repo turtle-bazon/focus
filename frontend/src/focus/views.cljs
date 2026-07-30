@@ -333,15 +333,36 @@
          [:div.markdown-editor-container
           [:div.markdown-editor-content
            {:ref (fn [el]
-                   (reset! editor-ref-atom el)
-                   (when (and el (not @mounted) (:on-change opts))
-                     (reset! mounted true)
-                     (reset! editor-content-cb (:on-change opts))
-                     (set! (.-innerHTML el) (or (:initial-content opts) ""))
-                     (.addEventListener el "input"
-                                        (fn [_]
-                                          (let [md (editor-html->markdown (.-innerHTML el))]
-                                            ((:on-change opts) md))))))
+                    (reset! editor-ref-atom el)
+                    (when (and el (not @mounted) (:on-change opts))
+                      (reset! mounted true)
+                      (reset! editor-content-cb (:on-change opts))
+                      (set! (.-innerHTML el) (or (:initial-content opts) ""))
+                      (.addEventListener el "input"
+                                         (fn [_]
+                                           (let [md (editor-html->markdown (.-innerHTML el))]
+                                             ((:on-change opts) md))))
+                      (.addEventListener el "keydown"
+                                         (fn [e]
+                                           (when (= (.-key e) "Enter")
+                                             (let [sel (.getSelection js/window)]
+                                               (when (and sel (pos? (.-rangeCount sel)))
+                                                 (let [range (.getRangeAt sel 0)
+                                                       container (.-startContainer range)
+                                                       node (if (= 3 (.-nodeType container)) (.-parentElement container) container)]
+                                                   (when-let [pre-node (when node (.closest node "pre"))]
+                                                     (.preventDefault e)
+                                                     (let [p (.createElement js/document "p")]
+                                                       (.appendChild p (.createTextNode js/document "\u200B"))
+                                                       (.insertAdjacentElement pre-node "afterend" p)
+                                                       (let [new-range (.createRange js/document)]
+                                                         (.setStart new-range p 0)
+                                                         (.collapse new-range true)
+                                                         (.removeAllRanges sel)
+                                                         (.addRange sel new-range))
+                                                       (when-let [cb @editor-content-cb]
+                                                         (let [md (editor-html->markdown (.-innerHTML el))]
+                                                            (cb md)))))))))))))
             :contentEditable true
             :data-placeholder (:placeholder opts "Write a comment...")}]]])})))
 

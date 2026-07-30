@@ -22,8 +22,9 @@
     :search-query ""
     :loading true
     :error nil
-    :active-tab :comments
-    :locale (i18n/get-saved-locale)}))
+     :active-tab :comments
+     :comment-form-version 0
+     :locale (i18n/get-saved-locale)}))
 
 (rf/reg-event-db
  :set-view
@@ -332,12 +333,18 @@
                      :body (:body data)
                      :created_at (.toISOString (js/Date.))}]
         (rf/dispatch [:add-comment comment ticket-id])
+        (rf/dispatch [:clear-comment-form])
         (api/fetch-activity ticket-id {:limit 20 :offset 0}
          (fn [resp] (rf/dispatch [:set-activity-initial (:activity resp) (:total resp)]))
          (fn [_]))))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create comment: " error)])))
-   {:db db}))
+    {:db db}))
+
+(rf/reg-event-db
+ :clear-comment-form
+ (fn [db _]
+   (update db :comment-form-version inc)))
 
 (rf/reg-event-fx
  :load-more-comments

@@ -118,3 +118,8 @@
  :active-tab
  (fn [db _]
    (:active-tab db)))
+
+(rf/reg-sub
+ :comment-form-version
+ (fn [db _]
+   (:comment-form-version db)))

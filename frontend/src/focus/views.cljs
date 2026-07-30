@@ -287,8 +287,9 @@
                             el (if (= 3 (.-nodeType sc)) (.-parentElement sc) sc)]
                         (.removeAllRanges sel)
                         (.addRange sel range)
-                        (when-let [ce (.closest el "[contenteditable=true]")]
-                          (.focus ce))))
+                        (when (and el (.-closest el))
+                          (when-let [ce (.closest el "[contenteditable=true]")]
+                            (.focus ce)))))
                     (when-not (cursor-in-code-block?)
                       (on-click)))}
        label])))

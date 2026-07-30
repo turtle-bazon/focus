@@ -167,7 +167,7 @@
     (when (and sel (pos? (.-rangeCount sel)))
       (let [range (.getRangeAt sel 0)
             container (.-startContainer range)
-            node (if (= 3 (.-nodeType container)) container (.-parentElement container))]
+            node (if (= 3 (.-nodeType container)) (.-parentElement container) container)]
         (when node
           (boolean (.closest node "code, pre")))))))
 

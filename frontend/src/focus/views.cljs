@@ -162,6 +162,15 @@
             (let [md (editor-html->markdown (.-innerHTML ce))]
               (cb md))))))))
 
+(defn- cursor-in-code-block? []
+  (let [sel (.getSelection js/window)]
+    (when (and sel (pos? (.-rangeCount sel)))
+      (let [range (.getRangeAt sel 0)
+            container (.-startContainer range)
+            node (if (= 3 (.-nodeType container)) container (.-parentElement container))]
+        (when node
+          (boolean (.closest node "code, pre")))))))
+
 (defn editor-exec-command [command & args]
   (.execCommand js/document command false (first args)))
 
@@ -280,7 +289,8 @@
                         (.addRange sel range)
                         (when-let [ce (.closest el "[contenteditable=true]")]
                           (.focus ce))))
-                    (on-click))}
+                    (when-not (cursor-in-code-block?)
+                      (on-click)))}
        label])))
 
 (defn editor-toolbar []

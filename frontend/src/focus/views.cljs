@@ -9,40 +9,120 @@
   (let [locale @(rf/subscribe [:locale])]
     (i18n/t locale key)))
 
-(defn- extract-list-items [list-html]
-  (let [li-re #"<li[^>]*>([\s\S]*?)</li>"]
-    (re-seq li-re list-html)))
+(defn- find-tag-end [html start-pos open-re close-re]
+  (loop [pos start-pos
+         depth 1]
+    (let [rest-html (subs html pos)
+          next-open (re-find open-re rest-html)
+          next-close (re-find close-re rest-html)
+          open-idx (when next-open (.indexOf rest-html next-open))
+          close-idx (when next-close (.indexOf rest-html next-close))]
+      (cond
+        (nil? next-close) nil
+        (or (nil? open-idx) (< close-idx open-idx))
+        (if (= depth 1)
+          (+ pos close-idx (count next-close))
+          (recur (+ pos close-idx (count next-close)) (dec depth)))
+        :else
+        (recur (+ pos open-idx (count next-open)) (inc depth))))))
+(defn- extract-li-items [content]
+  (loop [in content
+         items []
+         li-depth 0
+         current ""]
+    (if (empty? in)
+      items
+      (let [li-start-m (re-find #"^<li[^>]*>" in)
+            li-end-m (re-find #"^</li>" in)
+            ul-start-m (re-find #"^<(?:ul|ol)[^>]*>" in)
+            ul-end-m (re-find #"^</(?:ul|ol)>" in)]
+        (cond
+          li-start-m
+          (recur (subs in (count li-start-m))
+                 items (inc li-depth)
+                 (if (zero? li-depth) (str li-start-m) (str current li-start-m)))
+          li-end-m
+          (let [new-current (str current li-end-m)]
+            (if (= li-depth 1)
+              (recur (subs in (count li-end-m)) (conj items new-current) 0 "")
+              (recur (subs in (count li-end-m)) items (dec li-depth) new-current)))
+          ul-start-m
+          (recur (subs in (count ul-start-m)) items li-depth (str current ul-start-m))
+          ul-end-m
+          (recur (subs in (count ul-end-m)) items li-depth (str current ul-end-m))
+          :else
+          (let [text-end (loop [i 0]
+                           (if (>= i (count in)) i
+                               (if (= (.charAt in i) \<) i (recur (inc i)))))]
+            (if (and (< text-end (count in))
+                     (re-find #"^</?(?:li|ul|ol)" (subs in text-end)))
+              (recur (subs in text-end) items li-depth (str current (subs in 0 text-end)))
+              (let [scan-end (if (< text-end (count in))
+                               (let [e (.indexOf in ">" text-end)]
+                                 (if (>= e 0) (+ e 1) (count in)))
+                               (count in))]
+                (recur (subs in scan-end) items li-depth
+                        (str current (subs in 0 scan-end)))))))))))
+
+(defn- item-text [item-html]
+  (-> item-html
+      (str/replace #"^<li[^>]*>" "")
+      (str/replace #"</li>$" "")
+      (str/replace #"<(?:ul|ol)[^>]*>[\s\S]*</(?:ul|ol)>" "")
+      str/trim))
+
+(defn- item-nested [item-html]
+  (let [inner (-> item-html
+                  (str/replace #"^<li[^>]*>" "")
+                  (str/replace #"</li>$" ""))]
+    (re-find #"<(?:ul|ol)[^>]*>[\s\S]*</(?:ul|ol)>" inner)))
+
+(defn- html-lists->markdown
+  ([html] (html-lists->markdown html 0))
+  ([html depth]
+   (let [ul-m (re-find #"<ul[^>]*>" html)
+         ol-m (re-find #"<ol[^>]*>" html)
+         ul-pos (when ul-m (.indexOf html ul-m))
+         ol-pos (when ol-m (.indexOf html ol-m))
+         start (cond
+                 (and ul-m ol-m) (if (< ul-pos ol-pos) ul-m ol-m)
+                 ul-m ul-m
+                 :else ol-m)]
+     (if (nil? start)
+       html
+       (let [tag-type (if ul-m "ul" "ol")
+             start-pos (.indexOf html start)
+             open-re (re-pattern (str "<" tag-type "[^>]*>"))
+             close-re (re-pattern (str "</" tag-type ">"))
+             end-pos (find-tag-end html (+ start-pos (count start)) open-re close-re)]
+         (if (nil? end-pos)
+           html
+           (let [block (subs html start-pos end-pos)
+                 open-tag (re-find open-re block)
+                 close-tag (re-find close-re block)
+                 content (subs block (count open-tag) (- (count block) (count close-tag)))
+                 items (extract-li-items content)
+                 before (subs html 0 start-pos)
+                 after (subs html end-pos)
+                 indent (apply str (repeat (* 2 depth) " "))
+                 converted (apply str
+                                  (map (fn [item]
+                                         (let [text (item-text item)
+                                               nested (item-nested item)]
+                                           (str indent "- " text "\n"
+                                                (when nested (html-lists->markdown nested (inc depth))))))
+                                       items))]
+             (recur (str before converted after) depth))))))))
 
 (defn- process-list-blocks [html]
-  (let [ol-re #"<ol[^>]*>([\s\S]*?)</ol>"
-        ul-re #"<ul[^>]*>([\s\S]*?)</ul>"
-        li-re #"<li[^>]*>([\s\S]*?)</li>"]
-    (loop [in html
-           out ""]
-      (let [ol-match (re-find ol-re in)
-            ul-match (re-find ul-re in)]
-        (cond
-          (nil? ol-match) (if (nil? ul-match)
-                            (str out (str/replace in li-re "- $1\n"))
-                            (let [full (first ul-match)
-                                  idx (.indexOf in full)
-                                  items (re-seq li-re full)
-                                  before (subs in 0 idx)
-                                  after (subs in (+ idx (count full)))
-                                  converted (apply str (map (fn [m] (str "- " (second m) "\n")) items))]
-                              (recur after (str out before converted))))
-          :else (let [full (first ol-match)
-                      idx (.indexOf in full)
-                      items (re-seq li-re full)
-                      before (subs in 0 idx)
-                      after (subs in (+ idx (count full)))
-                      converted (apply str (map-indexed (fn [i m] (str (inc i) ". " (second m) "\n")) items))]
-                  (recur after (str out before converted))))))))
+  (html-lists->markdown html))
 
 (defn editor-html->markdown [html]
   (if-not (string? html)
     ""
     (-> html
+        (str/replace #"<pre[^>]*>\s*<code[^>]*>([\s\S]*?)</code>\s*</pre>" "```\n$1\n```")
+        (str/replace #"<pre[^>]*>([\s\S]*?)</pre>" "```\n$1\n```")
         (str/replace #"<strong[^>]*>(.*?)</strong>" "**$1**")
         (str/replace #"<b[^>]*>(.*?)</b>" "**$1**")
         (str/replace #"<em[^>]*>(.*?)</em>" "*$1*")
@@ -56,7 +136,7 @@
         process-list-blocks
         (str/replace #"<br\s*/?>" "\n")
         (str/replace #"</div>|</p>" "\n")
-        (str/replace #"<[^>]+" "")
+        (str/replace #"<[^>]+>" "")
         (str/replace #"&amp;" "&")
         (str/replace #"&lt;" "<")
         (str/replace #"&gt;" ">")
@@ -66,6 +146,7 @@
         str/trim)))
 
 (def ^:private editor-content-cb (atom nil))
+(def ^:private editor-ref-atom (atom nil))
 
 (defn editor-sync-content []
   (when-let [cb @editor-content-cb]
@@ -148,18 +229,34 @@
             (editor-sync-content)))))))
 
 (defn editor-insert-list-tag [tag]
-  (let [sel (.getSelection js/window)]
-    (when (and sel (pos? (.-rangeCount sel)))
-      (let [range (.getRangeAt sel 0)
-            li (.createElement js/document "li")
+  (when-let [ce @editor-ref-atom]
+    (let [sel (.getSelection js/window)
+          range (when (and sel (pos? (.-rangeCount sel)))
+                  (.getRangeAt sel 0))
+          ce-range (when range
+                     (let [sc (.-startContainer range)]
+                       (when (.contains ce (if (= 3 (.-nodeType sc)) sc sc))
+                         range)))]
+      (let [li (.createElement js/document "li")
             list-el (.createElement js/document tag)]
-        (if (not (.-collapsed range))
-          (let [fragment (.cloneContents range)]
+        (if (and ce-range (not (.-collapsed ce-range)))
+          (let [fragment (.cloneContents ce-range)]
             (.appendChild li fragment)
-            (.deleteContents range))
+            (.deleteContents ce-range))
           (.appendChild li (.createTextNode js/document "\u200B")))
         (.appendChild list-el li)
-        (.insertNode range list-el)
+        (if ce-range
+          (.insertNode ce-range list-el)
+          (let [fallback-range (.createRange js/document)]
+            (.selectNodeContents fallback-range ce)
+            (.collapse fallback-range false)
+            (.insertNode fallback-range list-el)))
+        (.focus ce)
+        (let [new-range (.createRange js/document)]
+          (.selectNodeContents new-range li)
+          (.collapse new-range false)
+          (.removeAllRanges sel)
+          (.addRange sel new-range))
         (editor-sync-content)))))
 
 (defn editor-toolbar-button [label title on-click]
@@ -202,9 +299,7 @@
    [editor-toolbar-button "\uD83D\uDDBC" (t :editor/image) editor-insert-img-tag]])
 
 (defn wysiwyg-editor [opts]
-  (let [local-ref (r/atom nil)
-        editor-ref (or (:editor-ref opts) local-ref)
-        mounted (r/atom false)]
+  (let [mounted (r/atom false)]
     (r/create-class
      {:should-component-update (fn [_ _ _] false)
       :reagent-render
@@ -214,7 +309,7 @@
          [:div.markdown-editor-container
           [:div.markdown-editor-content
            {:ref (fn [el]
-                   (reset! editor-ref el)
+                   (reset! editor-ref-atom el)
                    (when (and el (not @mounted) (:on-change opts))
                      (reset! mounted true)
                      (reset! editor-content-cb (:on-change opts))

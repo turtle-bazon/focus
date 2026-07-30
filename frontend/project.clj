@@ -14,9 +14,16 @@
   :resource-paths ["resources"]
   :clean-targets ^{:protect false} ["resources/public/js" "target"]
   :cljsbuild {:builds [{:id "min"
-                         :source-paths ["src"]
-                          :compiler {:main focus.core
-                                     :output-to "resources/public/js/app.js"
-                                     :output-dir "target/cljsbuild/js"
-                                     :optimizations :advanced
-                                     :closure-warnings {:global-this :off}}}]})
+                          :source-paths ["src"]
+                           :compiler {:main focus.core
+                                      :output-to "resources/public/js/app.js"
+                                      :output-dir "target/cljsbuild/js"
+                                      :optimizations :advanced
+                                      :closure-warnings {:global-this :off}}}
+                         {:id "test"
+                          :source-paths ["test"]
+                          :compiler {:main focus.parser-test
+                                     :output-to "target/test.js"
+                                     :output-dir "target/test-js"
+                                     :target :nodejs
+                                     :optimizations :none}}]})

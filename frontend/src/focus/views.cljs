@@ -685,18 +685,16 @@
          (or (:username user) (str (t :ticket/user-prefix) (:assignee_id ticket))))])]])
 
 (defn comment-form [ticket-id new-comment user-id]
-  (let [editor-ref (r/atom nil)
-        last-version (r/atom 0)]
+  (let [last-version (r/atom 0)]
     (fn [ticket-id new-comment user-id]
       (let [version @(rf/subscribe [:comment-form-version])]
-        (when (and (> version @last-version) @editor-ref)
+        (when (and (> version @last-version) @editor-ref-atom)
           (reset! last-version version)
           (reset! new-comment "")
-          (set! (.-innerHTML @editor-ref) "")))
+          (set! (.-innerHTML @editor-ref-atom) "")))
       [:div.comment-form
        [wysiwyg-editor {:on-change #(reset! new-comment %)
-                         :placeholder (t :comment/add-placeholder)
-                         :editor-ref editor-ref}]
+                         :placeholder (t :comment/add-placeholder)}]
        [:button.submit-button
         {:type "button"
          :on-click (fn []

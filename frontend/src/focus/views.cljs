@@ -719,6 +719,49 @@
 
 
 
+(defn user-avatar [user size]
+  (let [size (or size 24)]
+    (if-let [pic (:picture user)]
+      [:img.user-avatar {:src pic :alt (:username user) :style {:width size :height size :border-radius "50%" :object-fit "cover"}}]
+      [:span.user-avatar {:style {:width size :height size :border-radius "50%" :display "inline-flex" :align-items "center" :justify-content "center" :background "linear-gradient(135deg, #3b82f6, #8b5cf6)" :color "white" :font-weight 600 :font-size (/ size 1.6)}}
+       (clojure.string/upper-case (subs (:username user) 0 1))])))
+
+(defn user-profile-popover [user on-close]
+  (let [ref (r/atom nil)
+        on-click-outside (fn [e]
+                           (when (and @ref (not (.contains @ref (.-target e))))
+                             (on-close)))]
+    (r/create-class
+     {:component-did-mount
+      (fn [] (.addEventListener js/document "mousedown" on-click-outside))
+      :component-will-unmount
+      (fn [] (.removeEventListener js/document "mousedown" on-click-outside))
+      :reagent-render
+      (fn []
+        [:div.user-profile-popover {:ref #(reset! ref %)}
+         [:div.user-profile-popover-header
+          [user-avatar user 64]
+          [:div.user-profile-popover-info
+           [:div.user-profile-popover-name (:username user)]
+           (when (:email user)
+             [:div.user-profile-popover-email (:email user)])]]
+         (when (:created_at user)
+           [:div.user-profile-popover-meta
+            [:span (str (t :ticket/user-prefix) (:id user))]])])})))
+
+(defn user-link [user]
+  (let [open? (r/atom false)]
+    (fn [user]
+      [:span.user-link-wrapper
+       {:style {:position "relative" :display "inline-flex" :align-items "center" :gap 6 :cursor "pointer"}}
+       [:span.user-link
+        {:on-click #(swap! open? not)
+         :style {:display "inline-flex" :align-items "center" :gap 6}}
+        [user-avatar user 20]
+        [:span.user-link-name (:username user)]]
+       (when @open?
+         [user-profile-popover user #(reset! open? false)])])))
+
 (defn ticket-detail-header [ticket users]
   [:div.ticket-detail-header
    [:button.back-button
@@ -784,7 +827,9 @@
    [:div.comment-header
     [:span.comment-user
      (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
-       (or (:username author) (str (t :ticket/user-prefix) (:user_id comment))))]
+       (if author
+         [user-link author]
+         [:span (str (t :ticket/user-prefix) (:user_id comment))]))]
     [:span.comment-date (format-date (:created_at comment))]]
    [:div.comment-body
     {:dangerouslySetInnerHTML
@@ -877,8 +922,10 @@
 (defn activity-item [item user-map]
   (let [details (parse-activity-details item)
         actor (get user-map (:user_id item))
-        actor-name (or (:username actor) (str (t :ticket/user-prefix) (:user_id item)))
-        action-content (activity-action-content item details actor-name)]
+        actor-component (if actor
+                          [user-link actor]
+                          [:span (str (t :ticket/user-prefix) (:user_id item))])
+        action-content (activity-action-content item details actor-component)]
     ^{:key (:id item)}
     [:div.activity-item
      (into [:span.activity-action] action-content)
@@ -1011,7 +1058,7 @@
                             (rf/dispatch [:set-locale l])
                             (reset! open? false))}
                [:span.language-code (name l)]
-               [:span.language-name (i18n/locale-display-name l)]])])])})))
+                [:span.language-name (i18n/locale-display-name l)]])])])})))
 
 (defn user-menu []
   (let [open? (r/atom false)

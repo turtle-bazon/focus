@@ -55,9 +55,11 @@
         (cdr (assoc (intern (format nil "~{~a~}" (map 'list (lambda (c) (if (char= c #\_) #\- c)) (string-downcase (symbol-name kw)))) :keyword) json :test #'equal)))))
 
 (defun %clean-json-value (val)
-  "Filter out cl-json's representation of JSON false/true/null."
+  "Filter out cl-json's representation of JSON false/true/null and string \"false\"/\"true\"."
   (cond ((eq val :false) nil)
         ((eq val :true) t)
+        ((and (stringp val) (string-equal val "false")) nil)
+        ((and (stringp val) (string-equal val "true")) t)
         (t val)))
 
 (defun %derive-picture-url (userinfo-uri user-id)

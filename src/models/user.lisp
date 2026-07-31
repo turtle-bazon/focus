@@ -3,10 +3,13 @@
 ;;; User model
 
 (defun create-user (username email &key picture)
-  "Create a new user. Returns the user ID."
-  (db-query
-   "INSERT INTO users (username, email, picture) VALUES ($1, $2, $3) RETURNING id"
-   username email picture :single))
+  "Create a new user. Returns the user plist."
+  (bl:info "create-user called: username=~a email=~a picture=~a" username email picture)
+  (let ((id (db-query
+             "INSERT INTO users (username, email, picture) VALUES ($1, $2, $3) RETURNING id"
+             username email picture :single)))
+    (bl:info "create-user inserted id=~a" id)
+    (get-user-by-id id)))
 
 (defun get-user-by-id (id)
   "Get user by ID. Returns plist or nil."

@@ -41,9 +41,13 @@
               (recur (subs in (count li-end-m)) (conj items new-current) 0 "")
               (recur (subs in (count li-end-m)) items (dec li-depth) new-current)))
           ul-start-m
-          (recur (subs in (count ul-start-m)) items li-depth (str current ul-start-m))
+          (if (zero? li-depth)
+            (recur (subs in (count ul-start-m)) items li-depth current)
+            (recur (subs in (count ul-start-m)) items li-depth (str current ul-start-m)))
           ul-end-m
-          (recur (subs in (count ul-end-m)) items li-depth (str current ul-end-m))
+          (if (zero? li-depth)
+            (recur (subs in (count ul-end-m)) items li-depth current)
+            (recur (subs in (count ul-end-m)) items li-depth (str current ul-end-m)))
           :else
           (let [text-end (loop [i 0]
                            (if (>= i (count in)) i
@@ -83,7 +87,7 @@
                  :else ol-m)]
      (if (nil? start)
        html
-       (let [tag-type (if ul-m "ul" "ol")
+       (let [tag-type (if (and ul-m (or (nil? ol-m) (< ul-pos ol-pos))) "ul" "ol")
              start-pos (.indexOf html start)
              open-re (re-pattern (str "<" tag-type "[^>]*>"))
              close-re (re-pattern (str "</" tag-type ">"))
@@ -99,12 +103,15 @@
                  after (subs html end-pos)
                  indent (apply str (repeat (* 2 depth) " "))
                  converted (apply str
-                                  (map (fn [item]
-                                         (let [text (item-text item)
-                                               nested (item-nested item)]
-                                           (str indent "- " text "\n"
-                                                (when nested (html-lists->markdown nested (inc depth))))))
-                                       items))]
+                                  (map-indexed (fn [idx item]
+                                                 (let [text (item-text item)
+                                                       nested (item-nested item)
+                                                       prefix (if (= tag-type "ol")
+                                                                (str (inc idx) ". ")
+                                                                "- ")]
+                                                   (str indent prefix text "\n"
+                                                        (when nested (html-lists->markdown nested (inc depth))))))
+                                               items))]
              (recur (str before converted after) depth))))))))
 
 (defn- process-list-blocks [html]
@@ -155,13 +162,13 @@
       (str/replace #"`(.+?)`" "<code>$1</code>")
       (str/replace #"\[(.+?)\]\((.+?)\)" "<a href=\"$2\">$1</a>")))
 
-(defn- close-lists [depth]
-  (apply str (repeat depth "</ul>")))
+(defn- close-lists [list-types]
+  (apply str (map #(str "</li></" % ">") (reverse list-types))))
 
 (defn- render-markdown-inner [lines]
-  (loop [remaining lines result [] in-code false list-depth 0 open-li? false]
+  (loop [remaining lines result [] in-code false list-types [] open-li? false]
     (if (empty? remaining)
-      (let [close-all (apply str (repeat list-depth "</li></ul>"))]
+      (let [close-all (close-lists list-types)]
         (str (apply str result) close-all))
       (let [line (first remaining)
             trimmed (str/trim line)
@@ -169,65 +176,80 @@
             depth (max 1 (inc (quot leading 2)))]
         (cond
           (and (not in-code) (str/starts-with? trimmed "```"))
-          (recur (rest remaining) (conj result "<pre><code>") true list-depth open-li?)
+          (recur (rest remaining) (conj result "<pre><code>") true list-types open-li?)
           (and in-code (str/starts-with? trimmed "```"))
           (let [trimmed-result (if (and (seq result) (str/ends-with? (last result) "\n"))
                                  (update result (dec (count result)) #(subs % 0 (dec (count %))))
                                  result)]
-            (recur (rest remaining) (conj trimmed-result "</code></pre>") false list-depth open-li?))
+            (recur (rest remaining) (conj trimmed-result "</code></pre>") false list-types open-li?))
           in-code
-          (recur (rest remaining) (conj result (escape-html line) "\n") true list-depth open-li?)
+          (recur (rest remaining) (conj result (escape-html line) "\n") true list-types open-li?)
           (str/blank? trimmed)
-          (recur (rest remaining) (conj result (close-lists list-depth) "<br>") false 0 false)
+          (recur (rest remaining) (conj result (close-lists list-types) "<br>") false [] false)
           (re-matches #"^#{1,6} .+$" trimmed)
           (let [level (count (re-find #"^#+" trimmed))
                 text (subs trimmed (inc level))]
-            (recur (rest remaining) (conj result (close-lists list-depth)
+            (recur (rest remaining) (conj result (close-lists list-types)
                                            (str "<h" level ">" (render-inline text) "</h" level ">"))
-                   false 0 false))
+                   false [] false))
           (re-matches #"^[-*_]{3,}$" trimmed)
-          (recur (rest remaining) (conj result (close-lists list-depth) "<hr>") false 0 false)
+          (recur (rest remaining) (conj result (close-lists list-types) "<hr>") false [] false)
           (re-matches #"^> .+$" trimmed)
-          (recur (rest remaining) (conj result (close-lists list-depth)
+          (recur (rest remaining) (conj result (close-lists list-types)
                                          "<blockquote>" (render-inline (subs trimmed 2)) "</blockquote>")
-                 false 0 false)
+                 false [] false)
           (re-matches #"^[-*] .+$" trimmed)
           (let [close-li (if open-li?
                            (cond
-                             (< depth list-depth)
-                             (str (apply str (repeat (- list-depth depth) "</li></ul>")) "</li>")
-                             (= depth list-depth)
+                             (< depth (count list-types))
+                             (str (apply str (map #(str "</li></" % ">")
+                                                 (reverse (subvec list-types depth))))
+                                  "</li>")
+                             (= depth (count list-types))
                              "</li>"
                              :else "")
                            "")
-                open-ul (if (> depth list-depth)
-                           (apply str (repeat (- depth list-depth) "<ul>"))
-                           "")
-                new-list-depth depth]
-            (recur (rest remaining) (conj result close-li open-ul
+                num-new (- depth (count list-types))
+                open-tags (if (> num-new 0)
+                            (apply str (repeat num-new "<ul>"))
+                            "")
+                new-list-types (if (> num-new 0)
+                                (vec (concat list-types (repeat num-new "ul")))
+                                (if (< depth (count list-types))
+                                  (subvec list-types 0 depth)
+                                  list-types))]
+            (recur (rest remaining) (conj result close-li open-tags
                                            "<li>" (render-inline (subs trimmed 2)))
-                   false (max new-list-depth 1) true))
+                   false new-list-types true))
           (re-matches #"^\d+\..+$" trimmed)
           (let [offset (inc (count (re-find #"^\d+\." trimmed)))
                 close-li (if open-li?
                            (cond
-                             (< depth list-depth)
-                             (str (apply str (repeat (- list-depth depth) "</li></ul>")) "</li>")
-                             (= depth list-depth)
+                             (< depth (count list-types))
+                             (str (apply str (map #(str "</li></" % ">")
+                                                 (reverse (subvec list-types depth))))
+                                  "</li>")
+                             (= depth (count list-types))
                              "</li>"
                              :else "")
                            "")
-                open-ul (if (> depth list-depth)
-                           (apply str (repeat (- depth list-depth) "<ul>"))
-                           "")
-                new-list-depth depth]
-            (recur (rest remaining) (conj result close-li open-ul
+                num-new (- depth (count list-types))
+                open-tags (if (> num-new 0)
+                            (apply str (cons "<ol>" (repeat (dec num-new) "<ul>")))
+                            "")
+                new-list-types (if (> num-new 0)
+                                (vec (concat list-types
+                                             (cons "ol" (repeat (dec num-new) "ul"))))
+                                (if (< depth (count list-types))
+                                  (subvec list-types 0 depth)
+                                  list-types))]
+            (recur (rest remaining) (conj result close-li open-tags
                                            "<li>" (render-inline (subs trimmed offset)))
-                   false (max new-list-depth 1) true))
+                   false new-list-types true))
           :else
-          (recur (rest remaining) (conj result (close-lists list-depth)
+          (recur (rest remaining) (conj result (close-lists list-types)
                                          "<p>" (render-inline trimmed) "</p>")
-                 false 0 false))))))
+                 false [] false))))))
 
 (defn render-markdown [md-string]
   (if-not (and md-string (string? md-string) (seq md-string))
@@ -308,6 +330,26 @@
   "<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul>"
   "- a\n  - b\n    - c")
 
+(test-case "simple ordered list"
+  "<ol><li>first</li><li>second</li><li>third</li></ol>"
+  "1. first\n2. second\n3. third")
+
+(test-case "nested ordered list"
+  "<ol><li>one<ol><li>two</li></ol></li><li>three</li></ol>"
+  "1. one\n  1. two\n2. three")
+
+(test-case "mixed list unordered in ordered"
+  "<ol><li>one<ul><li>two</li></ul></li><li>three</li></ol>"
+  "1. one\n  - two\n2. three")
+
+(test-case "mixed list ordered in unordered"
+  "<ul><li>one<ol><li>two</li></ol></li><li>three</li></ul>"
+  "- one\n  1. two\n- three")
+
+(test-case "ol wrapping ul (browser artifact)"
+  "<ol><ul><li>a</li><li>b</li></ul></ol>"
+  "1. a\n2. b")
+
 (test-case "code block pre"
   "<pre><code>line1</code></pre>"
   "```\nline1\n```")
@@ -372,6 +414,14 @@
   "- one\n  - two\n- three"
   "<ul><li>one<ul><li>two</li></ul></li><li>three</li></ul>")
 
+(test-render "ordered list"
+  "1. first\n2. second\n3. third"
+  "<ol><li>first</li><li>second</li><li>third</li></ol>")
+
+(test-render "nested ordered list"
+  "1. one\n  1. two\n2. three"
+  "<ol><li>one<ol><li>two</li></ol></li><li>three</li></ol>")
+
 (test-render "code block"
   "```\ncode\n```" "<pre><code>code</code></pre>")
 
@@ -405,6 +455,12 @@
 
 (test-roundtrip "code block followed by list"
   "<pre><code>test1\ntest2</code></pre><ul><li>1</li><li>2</li></ul>")
+
+(test-roundtrip "simple ordered list"
+  "<ol><li>first</li><li>second</li><li>third</li></ol>")
+
+(test-roundtrip "nested ordered list"
+  "<ol><li>one<ol><li>two</li></ol></li><li>three</li></ol>")
 
 (println)
 (println (str "RESULTS: " @pass-count " passed, " @fail-count " failed"))

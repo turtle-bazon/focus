@@ -16,17 +16,13 @@
       (str/replace #"`(.+?)`" "<code>$1</code>")
       (str/replace #"\[(.+?)\]\((.+?)\)" "<a href=\"$2\">$1</a>")))
 
-(defn- close-lists [depth]
-  (apply str (repeat depth "</ul>")))
+(defn- close-lists [list-types]
+  (apply str (map #(str "</li></" % ">") (reverse list-types))))
 
 (defn- render-markdown-inner [lines]
-  (loop [remaining lines
-         result []
-         in-code false
-         list-depth 0
-         open-li? false]
+  (loop [remaining lines result [] in-code false list-types [] open-li? false]
     (if (empty? remaining)
-      (let [close-all (apply str (repeat list-depth "</li></ul>"))]
+      (let [close-all (close-lists list-types)]
         (str (apply str result) close-all))
       (let [line (first remaining)
             trimmed (str/trim line)
@@ -35,85 +31,100 @@
         (cond
           (and (not in-code) (str/starts-with? trimmed "```"))
           (recur (rest remaining) (conj result "<pre><code>")
-                 true list-depth open-li?)
+                 true list-types open-li?)
 
           (and in-code (str/starts-with? trimmed "```"))
           (let [trimmed-result (if (and (seq result) (str/ends-with? (last result) "\n"))
                                  (update result (dec (count result)) #(subs % 0 (dec (count %))))
                                  result)]
             (recur (rest remaining) (conj trimmed-result "</code></pre>")
-                   false list-depth open-li?))
+                   false list-types open-li?))
 
           in-code
           (recur (rest remaining) (conj result (escape-html line) "\n")
-                 true list-depth open-li?)
+                 true list-types open-li?)
 
           (str/blank? trimmed)
           (recur (rest remaining)
-                 (conj result (close-lists list-depth) "<br>")
-                 false 0 false)
+                 (conj result (close-lists list-types) "<br>")
+                 false [] false)
 
           (re-matches #"^#{1,6} .+$" trimmed)
           (let [level (count (re-find #"^#+" trimmed))
                 text (subs trimmed (inc level))]
             (recur (rest remaining)
-                   (conj result (close-lists list-depth)
+                   (conj result (close-lists list-types)
                          (str "<h" level ">" (render-inline text) "</h" level ">"))
-                   false 0 false))
+                   false [] false))
 
           (re-matches #"^[-*_]{3,}$" trimmed)
           (recur (rest remaining)
-                 (conj result (close-lists list-depth) "<hr>")
-                 false 0 false)
+                 (conj result (close-lists list-types) "<hr>")
+                 false [] false)
 
           (re-matches #"^> .+$" trimmed)
           (recur (rest remaining)
-                 (conj result (close-lists list-depth)
+                 (conj result (close-lists list-types)
                        "<blockquote>" (render-inline (subs trimmed 2)) "</blockquote>")
-                 false 0 false)
+                 false [] false)
 
           (re-matches #"^[-*] .+$" trimmed)
           (let [close-li (if open-li?
                            (cond
-                             (< depth list-depth)
-                             (str (apply str (repeat (- list-depth depth) "</li></ul>")) "</li>")
-                             (= depth list-depth)
+                             (< depth (count list-types))
+                             (str (apply str (map #(str "</li></" % ">")
+                                                 (reverse (subvec list-types depth))))
+                                  "</li>")
+                             (= depth (count list-types))
                              "</li>"
                              :else "")
                            "")
-                open-ul (if (> depth list-depth)
-                          (apply str (repeat (- depth list-depth) "<ul>"))
-                          "")
-                new-list-depth depth]
+                num-new (- depth (count list-types))
+                open-tags (if (> num-new 0)
+                            (apply str (repeat num-new "<ul>"))
+                            "")
+                new-list-types (if (> num-new 0)
+                                (vec (concat list-types (repeat num-new "ul")))
+                                (if (< depth (count list-types))
+                                  (subvec list-types 0 depth)
+                                  list-types))]
             (recur (rest remaining)
-                   (conj result close-li open-ul
+                   (conj result close-li open-tags
                          "<li>" (render-inline (subs trimmed 2)))
-                   false (max new-list-depth 1) true))
+                   false new-list-types true))
 
           (re-matches #"^\d+\..+$" trimmed)
           (let [offset (inc (count (re-find #"^\d+\." trimmed)))
                 close-li (if open-li?
                            (cond
-                             (< depth list-depth)
-                             (str (apply str (repeat (- list-depth depth) "</li></ul>")) "</li>")
-                             (= depth list-depth)
+                             (< depth (count list-types))
+                             (str (apply str (map #(str "</li></" % ">")
+                                                 (reverse (subvec list-types depth))))
+                                  "</li>")
+                             (= depth (count list-types))
                              "</li>"
                              :else "")
                            "")
-                open-ul (if (> depth list-depth)
-                          (apply str (repeat (- depth list-depth) "<ul>"))
-                          "")
-                new-list-depth depth]
+                num-new (- depth (count list-types))
+                open-tags (if (> num-new 0)
+                            (apply str (cons "<ol>" (repeat (dec num-new) "<ul>")))
+                            "")
+                new-list-types (if (> num-new 0)
+                                (vec (concat list-types
+                                             (cons "ol" (repeat (dec num-new) "ul"))))
+                                (if (< depth (count list-types))
+                                  (subvec list-types 0 depth)
+                                  list-types))]
             (recur (rest remaining)
-                   (conj result close-li open-ul
+                   (conj result close-li open-tags
                          "<li>" (render-inline (subs trimmed offset)))
-                   false (max new-list-depth 1) true))
+                   false new-list-types true))
 
           :else
           (recur (rest remaining)
-                 (conj result (close-lists list-depth)
+                 (conj result (close-lists list-types)
                        "<p>" (render-inline trimmed) "</p>")
-                 false 0 false))))))
+                 false [] false))))))
 
 (defn render-markdown [md-string]
   (if-not (and md-string (string? md-string) (seq md-string))

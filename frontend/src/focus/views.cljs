@@ -47,9 +47,13 @@
               (recur (subs in (count li-end-m)) (conj items new-current) 0 "")
               (recur (subs in (count li-end-m)) items (dec li-depth) new-current)))
           ul-start-m
-          (recur (subs in (count ul-start-m)) items li-depth (str current ul-start-m))
+          (if (zero? li-depth)
+            (recur (subs in (count ul-start-m)) items li-depth current)
+            (recur (subs in (count ul-start-m)) items li-depth (str current ul-start-m)))
           ul-end-m
-          (recur (subs in (count ul-end-m)) items li-depth (str current ul-end-m))
+          (if (zero? li-depth)
+            (recur (subs in (count ul-end-m)) items li-depth current)
+            (recur (subs in (count ul-end-m)) items li-depth (str current ul-end-m)))
           :else
           (let [text-end (loop [i 0]
                            (if (>= i (count in)) i
@@ -90,7 +94,7 @@
                  :else ol-m)]
      (if (nil? start)
        html
-       (let [tag-type (if ul-m "ul" "ol")
+       (let [tag-type (if (and ul-m (or (nil? ol-m) (< ul-pos ol-pos))) "ul" "ol")
              start-pos (.indexOf html start)
              open-re (re-pattern (str "<" tag-type "[^>]*>"))
              close-re (re-pattern (str "</" tag-type ">"))
@@ -106,12 +110,15 @@
                  after (subs html end-pos)
                  indent (apply str (repeat (* 2 depth) " "))
                  converted (apply str
-                                  (map (fn [item]
-                                         (let [text (item-text item)
-                                               nested (item-nested item)]
-                                           (str indent "- " text "\n"
-                                                (when nested (html-lists->markdown nested (inc depth))))))
-                                       items))]
+                                  (map-indexed (fn [idx item]
+                                                 (let [text (item-text item)
+                                                       nested (item-nested item)
+                                                       prefix (if (= tag-type "ol")
+                                                                (str (inc idx) ". ")
+                                                                "- ")]
+                                                   (str indent prefix text "\n"
+                                                        (when nested (html-lists->markdown nested (inc depth))))))
+                                               items))]
              (recur (str before converted after) depth))))))))
 
 (defn- process-list-blocks [html]

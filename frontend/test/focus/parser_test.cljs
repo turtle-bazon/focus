@@ -114,8 +114,8 @@
   (if-not (string? html)
     ""
     (-> html
-        (str/replace #"<pre[^>]*>\s*<code[^>]*>([\s\S]*?)</code>\s*</pre>" "```\n$1\n```")
-        (str/replace #"<pre[^>]*>([\s\S]*?)</pre>" "```\n$1\n```")
+        (str/replace #"<pre[^>]*>\s*<code[^>]*>([\s\S]*?)</code>\s*</pre>" "```\n$1\n```\n")
+        (str/replace #"<pre[^>]*>([\s\S]*?)</pre>" "```\n$1\n```\n")
         (str/replace #"<strong[^>]*>(.*?)</strong>" "**$1**")
         (str/replace #"<b[^>]*>(.*?)</b>" "**$1**")
         (str/replace #"<em[^>]*>(.*?)</em>" "*$1*")
@@ -378,6 +378,18 @@
 (test-render "link"
   "[text](http://x.com)" "<p><a href=\"http://x.com\">text</a></p>")
 
+(test-case "code block followed by list"
+  "<pre><code>test1\ntest2</code></pre><ul><li>1</li><li>2</li></ul>"
+  "```\ntest1\ntest2\n```\n- 1\n- 2")
+
+(test-case "code block followed by list no blank line"
+  "<pre><code>code</code></pre><ul><li>item</li></ul>"
+  "```\ncode\n```\n- item")
+
+(test-case "code block followed by list with intermediate paragraph"
+  "<pre><code>code</code></pre><p>text</p><ul><li>item</li></ul>"
+  "```\ncode\n```\ntext\n- item")
+
 (println)
 (println "=== ROUNDTRIP ===")
 (println)
@@ -390,6 +402,9 @@
 
 (test-roundtrip "deep nested"
   "<ul><li>a<ul><li>b<ul><li>c</li></ul></li></ul></li></ul>")
+
+(test-roundtrip "code block followed by list"
+  "<pre><code>test1\ntest2</code></pre><ul><li>1</li><li>2</li></ul>")
 
 (println)
 (println (str "RESULTS: " @pass-count " passed, " @fail-count " failed"))

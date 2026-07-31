@@ -121,8 +121,8 @@
   (if-not (string? html)
     ""
     (-> html
-        (str/replace #"<pre[^>]*>\s*<code[^>]*>([\s\S]*?)</code>\s*</pre>" "```\n$1\n```")
-        (str/replace #"<pre[^>]*>([\s\S]*?)</pre>" "```\n$1\n```")
+        (str/replace #"<pre[^>]*>\s*<code[^>]*>([\s\S]*?)</code>\s*</pre>" "```\n$1\n```\n")
+        (str/replace #"<pre[^>]*>([\s\S]*?)</pre>" "```\n$1\n```\n")
         (str/replace #"<strong[^>]*>(.*?)</strong>" "**$1**")
         (str/replace #"<b[^>]*>(.*?)</b>" "**$1**")
         (str/replace #"<em[^>]*>(.*?)</em>" "*$1*")
@@ -281,30 +281,34 @@
                              (reset! saved-range (.cloneRange (.getRangeAt sel 0))))))
         :on-click (fn [e]
                     (.preventDefault e)
-                    (if-let [range @saved-range]
-                      (let [sel (.getSelection js/window)
-                            sc (.-startContainer range)
-                            el (if (= 3 (.-nodeType sc)) (.-parentElement sc) sc)]
-                        (.removeAllRanges sel)
-                        (.addRange sel range)
-                        (when (and el (.-closest el))
-                          (when-let [ce (.closest el "[contenteditable=true]")]
-                            (.focus ce))))
-                      (when-let [ce @editor-ref-atom]
+                    (let [range @saved-range
+                          ce (when range
+                               (let [sc (.-startContainer range)
+                                     el (if (= 3 (.-nodeType sc)) (.-parentElement sc) sc)]
+                                 (when (and el (.-closest el))
+                                   (.closest el "[contenteditable=true]"))))]
+                      (if ce
                         (let [sel (.getSelection js/window)]
+                          (.removeAllRanges sel)
+                          (.addRange sel range)
                           (.focus ce)
-                          (let [range (.createRange js/document)]
-                            (if (pos? (.-length (.-childNodes ce)))
-                              (let [last-child (.-lastChild ce)]
-                                (if (= 3 (.-nodeType last-child))
-                                  (.setStart range last-child (.-length last-child))
-                                  (.selectNodeContents range last-child))
-                                (.collapse range false))
-                              (.selectNodeContents range ce))
-                            (.removeAllRanges sel)
-                            (.addRange sel range)))))
-                    (when-not (cursor-in-code-block?)
-                      (on-click)))}
+                          (when-not (cursor-in-code-block?)
+                            (on-click)))
+                        (when-let [ce @editor-ref-atom]
+                          (let [sel (.getSelection js/window)]
+                            (.focus ce)
+                            (let [range (.createRange js/document)]
+                              (if (pos? (.-length (.-childNodes ce)))
+                                (let [last-child (.-lastChild ce)]
+                                  (if (= 3 (.-nodeType last-child))
+                                    (.setStart range last-child (.-length last-child))
+                                    (.selectNodeContents range last-child))
+                                  (.collapse range false))
+                                (.selectNodeContents range ce))
+                              (.removeAllRanges sel)
+                              (.addRange sel range))
+                            (when-not (cursor-in-code-block?)
+                              (on-click)))))))}
        label])))
 
 (defn editor-toolbar []

@@ -105,12 +105,12 @@
                  open-tag (re-find open-re block)
                  close-tag (re-find close-re block)
                  content (subs block (count open-tag) (- (count block) (count close-tag)))
-                 items (extract-li-items content)
+                  items (remove #(re-matches #"^(?:<li[^>]*>\s*</li>|<li[^>]*>\s*)$" %) (extract-li-items content))
               before (subs html 0 start-pos)
               after (subs html end-pos)
               before (if (and (seq before)
                               (not (re-find #"\n$" before))
-                              (not (re-find #"</(?:div|p|blockquote)>|<br\s*/?>\s*$" before)))
+                              (not (re-find #"(?:</(?:div|p|blockquote)>|<br\s*/?>|>\s+)$" before)))
                        (str before "\n")
                        before)
                  indent (apply str (repeat (* 2 depth) " "))
@@ -129,12 +129,68 @@
 (defn- process-list-blocks [html]
   (html-lists->markdown html))
 
+(declare convert-blockquotes)
+
+(defn- blockquote-content-lines [html]
+  "Split blockquote content into segments, separating inner blockquotes from surrounding text.
+   Returns a vector of strings where blockquote segments start with '>' already."
+  (loop [h html segs []]
+    (let [m (re-find #"<blockquote[^>]*>" h)]
+      (if-not m
+        (if (seq h) (conj segs h) segs)
+        (let [start (.indexOf h m)
+              before-part (subs h 0 start)
+              close-pos (find-tag-end h (+ start (count m)) #"<blockquote[^>]*>" #"</blockquote>")]
+          (if-not close-pos
+            (conj segs h)
+            (let [open-end (+ start (count m))
+                  inner-end (- close-pos (count "</blockquote>"))
+                  inner (subs h open-end inner-end)
+                  after-part (subs h close-pos)
+                  converted-inner (convert-blockquotes inner)
+                  segs (if (seq before-part) (conj segs before-part) segs)
+                  segs (conj segs converted-inner)]
+              (recur after-part segs))))))))
+
+(defn- convert-blockquotes [html]
+  (let [m (re-find #"<blockquote[^>]*>" html)]
+    (if-not m
+      html
+      (let [start (.indexOf html m)
+            close-pos (find-tag-end html (+ start (count m)) #"<blockquote[^>]*>" #"</blockquote>")]
+        (if-not close-pos
+          html
+          (let [open-end (+ start (count m))
+                inner-end (- close-pos (count "</blockquote>"))
+                inner (subs html open-end inner-end)
+                before (subs html 0 start)
+                after (subs html close-pos)
+                segments (blockquote-content-lines inner)
+                lines (map (fn [seg]
+                             (if (re-find #"^> " seg)
+                               seg
+                               (str "> " seg)))
+                           segments)
+                converted (str/join "\n" lines)]
+            (recur (str before converted after))))))))
+
 (defn editor-html->markdown [html]
   (if-not (string? html)
     ""
     (-> html
+        ;; Empty formatting tags first
+        (str/replace #"<(?:strong|b|em|i|s|del)(?:[^>]*)>\s*</(?:strong|b|em|i|s|del)>" "")
+        ;; Pre/code blocks
         (str/replace #"<pre[^>]*>\s*<code[^>]*>([\s\S]*?)</code>\s*</pre>" "```\n$1\n```\n")
         (str/replace #"<pre[^>]*>([\s\S]*?)</pre>" "```\n$1\n```\n")
+        ;; Headings
+        (str/replace #"<h1[^>]*>(.*?)</h1>" "# $1")
+        (str/replace #"<h2[^>]*>(.*?)</h2>" "## $1")
+        (str/replace #"<h3[^>]*>(.*?)</h3>" "### $1")
+        (str/replace #"<h4[^>]*>(.*?)</h4>" "#### $1")
+        (str/replace #"<h5[^>]*>(.*?)</h5>" "##### $1")
+        (str/replace #"<h6[^>]*>(.*?)</h6>" "###### $1")
+        ;; Inline formatting
         (str/replace #"<strong[^>]*>(.*?)</strong>" "**$1**")
         (str/replace #"<b[^>]*>(.*?)</b>" "**$1**")
         (str/replace #"<em[^>]*>(.*?)</em>" "*$1*")
@@ -144,7 +200,8 @@
         (str/replace #"<code[^>]*>(.*?)</code>" "`$1`")
         (str/replace #"<a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>" "[$2]($1)")
         (str/replace #"<img[^>]*src=\"([^\"]+)\"[^>]*/?>" "![]($1)")
-        (str/replace #"<blockquote[^>]*>(.*?)</blockquote>" "> $1")
+        (str/replace #"<hr\s*/?\s*>" "---\n")
+        convert-blockquotes
         process-list-blocks
         (str/replace #"<br\s*/?>" "\n")
         (str/replace #"</div>|</p>" "\n")

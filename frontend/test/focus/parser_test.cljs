@@ -99,8 +99,13 @@
                  close-tag (re-find close-re block)
                  content (subs block (count open-tag) (- (count block) (count close-tag)))
                  items (extract-li-items content)
-                 before (subs html 0 start-pos)
-                 after (subs html end-pos)
+              before (subs html 0 start-pos)
+              after (subs html end-pos)
+              before (if (and (seq before)
+                              (not (re-find #"\n$" before))
+                              (not (re-find #"</(?:div|p|blockquote)>|<br\s*/?>\s*$" before)))
+                       (str before "\n")
+                       before)
                  indent (apply str (repeat (* 2 depth) " "))
                  converted (apply str
                                   (map-indexed (fn [idx item]
@@ -378,6 +383,30 @@
 (test-case "two sequential lists"
   "<ul><li>1</li></ul><ul><li>2</li></ul>"
   "- 1\n- 2")
+
+(test-case "text before unordered list"
+  "test@123<ul><li>1</li><li>2</li></ul>"
+  "test@123\n- 1\n- 2")
+
+(test-case "text before ordered list"
+  "hello<ol><li>a</li><li>b</li></ol>"
+  "hello\n1. a\n2. b")
+
+(test-case "div-wrapped text before list"
+  "<div>test@123</div><ul><li>1</li><li>2</li></ul>"
+  "test@123\n- 1\n- 2")
+
+(test-case "text inside li before nested list"
+  "<ul><li>test@123<ul><li>1</li></ul></li></ul>"
+  "- test@123\n  - 1")
+
+(test-case "text after list"
+  "<ul><li>1</li></ul>trailing"
+  "- 1\ntrailing")
+
+(test-case "list between text"
+  "before<ul><li>1</li></ul>after"
+  "before\n- 1\nafter")
 
 (println)
 (println "=== MARKDOWN -> HTML ===")

@@ -106,8 +106,13 @@
                  close-tag (re-find close-re block)
                  content (subs block (count open-tag) (- (count block) (count close-tag)))
                  items (extract-li-items content)
-                 before (subs html 0 start-pos)
-                 after (subs html end-pos)
+              before (subs html 0 start-pos)
+              after (subs html end-pos)
+              before (if (and (seq before)
+                              (not (re-find #"\n$" before))
+                              (not (re-find #"</(?:div|p|blockquote)>|<br\s*/?>\s*$" before)))
+                       (str before "\n")
+                       before)
                  indent (apply str (repeat (* 2 depth) " "))
                  converted (apply str
                                   (map-indexed (fn [idx item]

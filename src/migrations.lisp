@@ -166,4 +166,8 @@ ALTER TABLE tickets DROP COLUMN position;
     ("0014-0014-ticket-colo"
      :up "ALTER TABLE tickets ADD COLUMN color VARCHAR(7) DEFAULT '#6b7280';"
 )
+    ("0015-0015-user-pictur"
+     :up "ALTER TABLE users ADD COLUMN picture VARCHAR(500);
+"
+)
 ))

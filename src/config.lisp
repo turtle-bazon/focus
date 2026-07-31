@@ -29,6 +29,7 @@
 (defun config->oauth2-userinfo-email-key (config) (or (getf config :oauth2-userinfo-email-key) "email"))
 (defun config->oauth2-userinfo-username-key (config) (or (getf config :oauth2-userinfo-username-key) "username"))
 (defun config->oauth2-userinfo-name-key (config) (or (getf config :oauth2-userinfo-name-key) "name"))
+(defun config->oauth2-userinfo-picture-key (config) (or (getf config :oauth2-userinfo-picture-key) "picture"))
 (defun config->app-name (config) (or (getf config :app-name) "Focus"))
 (defun config->app-description (config) (or (getf config :app-description) "Issue tracker"))
 

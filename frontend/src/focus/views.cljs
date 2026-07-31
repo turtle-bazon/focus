@@ -951,9 +951,44 @@
                [:span.language-code (name l)]
                [:span.language-name (i18n/locale-display-name l)]])])])})))
 
+(defn user-menu []
+  (let [open? (r/atom false)
+        ref (r/atom nil)
+        on-click-outside
+        (fn [e]
+          (when (and @open? @ref)
+            (when-not (.contains @ref (.-target e))
+              (reset! open? false))))]
+    (r/create-class
+     {:component-did-mount
+      (fn [] (.addEventListener js/document "mousedown" on-click-outside))
+      :component-will-unmount
+      (fn [] (.removeEventListener js/document "mousedown" on-click-outside))
+      :reagent-render
+      (fn []
+        (let [auth @(rf/subscribe [:auth])
+              user (get auth :user)]
+          (when user
+            [:div.user-menu {:ref #(reset! ref %)
+                             :class (when @open? "open")}
+             [:button.user-menu-button
+              {:on-click #(swap! open? not)}
+              (if-let [pic (:picture user)]
+                [:img.user-menu-avatar {:src pic :alt (:username user)}]
+                [:span.user-menu-avatar (clojure.string/upper-case (subs (:username user) 0 1))])
+              [:span.user-menu-name (:username user)]
+              [:span.user-menu-chevron "\u25BE"]]
+             (when @open?
+               [:div.user-menu-dropdown
+                [:button.user-menu-item
+                 {:on-click (fn []
+                              (reset! open? false)
+                              (rf/dispatch [:logout]))}
+                 [:span.user-menu-item-icon "\u2192"]
+                 (t :nav/logout)]])])))})))
+
 (defn nav-bar []
-  (let [current-view @(rf/subscribe [:current-view])
-        auth @(rf/subscribe [:auth])]
+  (let [current-view @(rf/subscribe [:current-view])]
     [:div.nav-bar
      [:div.nav-brand (t :app/title)]
      [:div.nav-links
@@ -966,11 +1001,7 @@
       [create-ticket-modal]]
      [:div.nav-auth
       [language-switcher]
-      (when-let [user (get auth :user)]
-        [:span.user-name (:username user)])
-      [:button.logout-button
-       {:on-click #(rf/dispatch [:logout])}
-       (t :nav/logout)]]]))
+      [user-menu]]]))
 
 (defn app-panel []
   (let [current-view @(rf/subscribe [:current-view])]

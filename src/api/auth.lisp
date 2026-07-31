@@ -54,9 +54,27 @@
     (or (cdr (assoc kw json :test #'equal))
         (cdr (assoc (intern (format nil "~{~a~}" (map 'list (lambda (c) (if (char= c #\_) #\- c)) (string-downcase (symbol-name kw)))) :keyword) json :test #'equal)))))
 
+(defun %clean-json-value (val)
+  "Filter out cl-json's representation of JSON false/true/null."
+  (cond ((eq val :false) nil)
+        ((eq val :true) t)
+        (t val)))
+
+(defun %derive-picture-url (userinfo-uri user-id)
+  "Derive profile picture URL from userinfo URI and user ID.
+For Mattermost: /api/v4/users/me → /api/v4/users/{id}/image"
+  (when (and userinfo-uri user-id)
+    (let ((base (subseq userinfo-uri
+                        0
+                        (let ((pos (search "/users/me" userinfo-uri)))
+                          (if pos pos
+                              (let ((pos2 (search "/userinfo" userinfo-uri)))
+                                (if pos2 pos2 (length userinfo-uri))))))))
+      (format nil "~a/users/~a/image" base user-id))))
+
 (defun %fetch-userinfo (access-tok)
   "Fetch user info from the configured userinfo endpoint.
-Returns (values email name username) or signals an error."
+Returns (values email name username picture) or signals an error."
   (let* ((userinfo-uri (config->oauth2-userinfo-uri *config*))
          (response (dexador:request userinfo-uri
                                    :headers `(("Authorization" . ,(format nil "Bearer ~a" access-tok)))
@@ -64,17 +82,30 @@ Returns (values email name username) or signals an error."
          (user-data (cl-json:decode-json-from-string response))
          (email-key (config->oauth2-userinfo-email-key *config*))
          (username-key (config->oauth2-userinfo-username-key *config*))
-         (name-key (config->oauth2-userinfo-name-key *config*)))
+         (name-key (config->oauth2-userinfo-name-key *config*))
+         (picture-key (config->oauth2-userinfo-picture-key *config*))
+         (explicit-picture (%json-assoc-key user-data picture-key))
+         (user-id (or (%json-assoc-key user-data "id")
+                      (%json-assoc-key user-data "sub")))
+         (picture (or explicit-picture (%derive-picture-url userinfo-uri user-id))))
     (bl:info "Userinfo response: ~a" user-data)
+    (bl:info "Derived picture URL: ~a" picture)
     (values (%json-assoc-key user-data email-key)
             (%json-assoc-key user-data name-key)
-            (%json-assoc-key user-data username-key))))
+            (%json-assoc-key user-data username-key)
+            picture)))
 
-(defun %handle-auth-success (email name username)
+(defun %handle-auth-success (email name username picture)
   "Process successful OAuth2 login."
-  (let* ((user (or (when email (get-user-by-email email))
+  (setf email (%clean-json-value email)
+        name (%clean-json-value name)
+        username (%clean-json-value username))
+  (let* ((existing (when email (get-user-by-email email)))
+         (user (if existing
+                   (update-user (getf existing :id) :picture picture)
                    (create-user (or username name email "user")
-                                (or email (format nil "~a@oauth" (or username "user"))))))
+                                (or email (format nil "~a@oauth" (or username "user")))
+                                :picture picture)))
          (session-id (generate-session-id))
          (user-id (getf user :id))
          (cookie-header (cl-oauth2:make-set-cookie-header
@@ -106,9 +137,9 @@ Returns (values email name username) or signals an error."
         (let* ((token (cl-oauth2:exchange-code *oauth2-client* code))
                (access-tok (cl-oauth2:access-token token)))
           (bl:info "Token exchanged, fetching user info")
-          (multiple-value-bind (email name username) (%fetch-userinfo access-tok)
+          (multiple-value-bind (email name username picture) (%fetch-userinfo access-tok)
             (bl:info "email=~a name=~a username=~a" email name username)
-            (%handle-auth-success email name username)))
+            (%handle-auth-success email name username picture)))
       (error (e)
         (bl:error "OAuth2 callback error: ~a" e)
         (%handle-auth-error "auth_failed")))))
@@ -130,7 +161,7 @@ Returns (values email name username) or signals an error."
     (when session-id
       (delete-db-session session-id)))
   (list 200
-        (list (cl-oauth2:clear-session-cookie))
+        (list :set-cookie "focus_session=; Path=/; Max-Age=0; HttpOnly")
         (list "{\"message\":\"Logged out\"}")))
 
 (defun handle-app-info (env)

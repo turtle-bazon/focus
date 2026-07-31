@@ -18,5 +18,6 @@
  :oauth2-userinfo-email-key "email"
  :oauth2-userinfo-username-key "username"
  :oauth2-userinfo-name-key "name"
+ :oauth2-userinfo-picture-key "picture"
  :app-name "Focus"
  :app-description "Issue tracker for teams")

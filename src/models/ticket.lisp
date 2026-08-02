@@ -2,12 +2,13 @@
 
 ;;; Ticket model
 
-(defun create-ticket (title &key description status priority assignee-id color)
+(defun create-ticket (title &key description status priority assignee-id assignee-type color)
   "Create a new ticket. Returns the ticket ID."
-  (let ((status (or status "open")))
+  (let ((status (or status "open"))
+        (assignee-type (or assignee-type "user")))
     (db-query
-     "INSERT INTO tickets (title, description, status, priority, assignee_id, color, position_num, position_den)
-       VALUES ($1, $2, $3::varchar, $4, NULLIF($5, 0), $6,
+     "INSERT INTO tickets (title, description, status, priority, assignee_id, assignee_type, color, position_num, position_den)
+       VALUES ($1, $2, $3::varchar, $4, NULLIF($5, 0), $6, $7,
                COALESCE((SELECT MAX(position_num) + 1 FROM tickets WHERE status = $3::varchar), 0),
                1)
        RETURNING id"
@@ -16,13 +17,14 @@
      status
      (or priority "medium")
      (or assignee-id 0)
+     assignee-type
      (or color "#6b7280")
      :single)))
 
 (defun get-ticket-by-id (id)
   "Get ticket by ID. Returns plist or nil."
   (let ((results (db-query
-                  "SELECT id, title, description, status, priority, assignee_id, color,
+                  "SELECT id, title, description, status, priority, assignee_id, assignee_type, color,
                           position_num, position_den, created_at, updated_at
                    FROM tickets WHERE id = $1"
                   id :alists)))
@@ -49,7 +51,7 @@
           (all-params (append (reverse params)
                              (list limit (* (- page 1) limit)))))
       (pg-query-params
-       (format nil "SELECT id, title, description, status, priority, assignee_id, color,
+       (format nil "SELECT id, title, description, status, priority, assignee_id, assignee_type, color,
                            position_num, position_den, created_at, updated_at
                     FROM tickets ~a
                     ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 1 END,
@@ -60,7 +62,7 @@
                (+ 2 (length params)))
        all-params))))
 
-(defun update-ticket (id &key title description status priority assignee-id color)
+(defun update-ticket (id &key title description status priority assignee-id assignee-type color)
   "Update ticket fields. Returns the updated ticket."
   (let ((sets '())
         (params '())
@@ -85,6 +87,10 @@
       (incf i)
       (push (format nil "assignee_id = $~d" i) sets)
       (push assignee-id params))
+    (when assignee-type
+      (incf i)
+      (push (format nil "assignee_type = $~d" i) sets)
+      (push assignee-type params))
     (when color
       (incf i)
       (push (format nil "color = $~d" i) sets)
@@ -170,7 +176,7 @@
 (defun search-tickets (search-query)
   "Full-text search tickets by title and description."
   (pg-query-params
-   "SELECT id, title, description, status, priority, assignee_id, color,
+   "SELECT id, title, description, status, priority, assignee_id, assignee_type, color,
            position_num, position_den, created_at, updated_at
     FROM tickets
     WHERE title ILIKE $1 OR description ILIKE $1

@@ -144,6 +144,7 @@
          (status (json-assoc :status body))
          (priority (json-assoc :priority body))
          (assignee-id (json-assoc :assignee_id body))
+         (assignee-type (json-assoc :assignee_type body))
          (color (json-assoc :color body)))
     (unless title
       (return-from handle-create-ticket (error-response "Title is required")))
@@ -155,6 +156,7 @@
                                             (if (stringp assignee-id)
                                                 (parse-integer assignee-id)
                                                 assignee-id))
+                              :assignee-type assignee-type
                               :color color)))
       (let ((ticket (get-ticket-by-id id))
             (user-id (get-user-id-from-env env)))
@@ -173,6 +175,7 @@
                (status (json-assoc :status body))
                (priority (json-assoc :priority body))
                (assignee-id (json-assoc :assignee_id body))
+               (assignee-type (json-assoc :assignee_type body))
                (color (json-assoc :color body))
                (position (json-assoc :position body))
                (old-ticket (get-ticket-by-id id))
@@ -188,6 +191,7 @@
                                         :status status
                                         :priority priority
                                         :assignee-id assignee-id
+                                        :assignee-type assignee-type
                                         :color color))))
           (if ticket
               (progn
@@ -313,6 +317,28 @@
     (bind ((id (create-user username email)))
       (json-response `(:id ,id) 201))))
 
+(defun handle-update-user (env)
+  "PUT /api/users/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/users/(\\d+)$")))
+    (if id
+        (bind ((body (parse-json-body env))
+               (username (json-assoc :username body))
+               (email (json-assoc :email body))
+               (role (json-assoc :role body)))
+          (json-response (apply #'update-user id
+                                (append (when username (list :username username))
+                                        (when email (list :email email))
+                                        (when role (list :role role))))))
+        (error-response "Invalid user ID"))))
+
+(defun handle-delete-user (env)
+  "DELETE /api/users/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/users/(\\d+)$")))
+    (if id
+        (progn (delete-user id)
+               (json-response `(:message "User deleted")))
+        (error-response "Invalid user ID"))))
+
 ;;; Label handlers
 
 (defun handle-list-labels (env)
@@ -364,3 +390,121 @@
       (return-from handle-create-webhook (error-response "URL is required")))
     (bind ((id (create-webhook url :secret secret :events events :active active)))
       (json-response `(:id ,id) 201))))
+
+;;; Group handlers
+
+(defun handle-list-groups (env)
+  "GET /api/groups"
+  (declare (ignore env))
+  (json-response `(:groups ,(list-groups))))
+
+(defun handle-create-group (env)
+  "POST /api/groups"
+  (bind ((body (parse-json-body env))
+         (name (json-assoc :name body)))
+    (unless name
+      (return-from handle-create-group (error-response "Name is required")))
+    (bind ((id (create-group name)))
+      (json-response `(:id ,id) 201))))
+
+(defun handle-get-group (env)
+  "GET /api/groups/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)$")))
+    (if id
+        (let ((group (get-group-by-id id)))
+          (if group
+              (json-response group)
+              (error-response "Group not found" 404)))
+        (error-response "Invalid group ID"))))
+
+(defun handle-update-group (env)
+  "PUT /api/groups/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)$")))
+    (if id
+        (bind ((body (parse-json-body env))
+               (name (json-assoc :name body)))
+          (update-group id :name name)
+          (json-response (get-group-by-id id)))
+        (error-response "Invalid group ID"))))
+
+(defun handle-delete-group (env)
+  "DELETE /api/groups/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)$")))
+    (if id
+        (progn
+          (delete-group id)
+          (json-response `(:message "Group deleted")))
+        (error-response "Invalid group ID"))))
+
+(defun handle-list-group-members (env)
+  "GET /api/groups/:id/members"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)/members$")))
+    (if id
+        (json-response `(:members ,(list-group-members id)))
+        (error-response "Invalid group ID"))))
+
+(defun handle-add-group-member (env)
+  "POST /api/groups/:id/members"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)/members$")))
+    (if id
+        (bind ((body (parse-json-body env))
+               (user-id (json-assoc :user_id body)))
+          (unless user-id
+            (return-from handle-add-group-member (error-response "User ID is required")))
+          (add-group-member id (if (stringp user-id) (parse-integer user-id) user-id))
+          (json-response `(:message "Member added")))
+        (error-response "Invalid group ID"))))
+
+(defun handle-remove-group-member (env)
+  "DELETE /api/groups/:id/members/:user_id"
+  (let* ((path (getf env :path-info))
+         (group-id (extract-id-from-path path "^/api/groups/(\\d+)/members/\\d+$"))
+         (user-id-str (ppcre:register-groups-bind (uid)
+                           ("^/api/groups/\\d+/members/(\\d+)$" path)
+                         uid)))
+    (if (and group-id user-id-str)
+        (progn
+          (remove-group-member group-id (parse-integer user-id-str))
+          (json-response `(:message "Member removed")))
+        (error-response "Invalid group or user ID"))))
+
+;;; Ticket observer handlers
+
+(defun handle-list-ticket-observers (env)
+  "GET /api/tickets/:id/observers"
+  (let ((ticket-id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/observers$")))
+    (if ticket-id
+        (let ((observers (list-ticket-observers ticket-id)))
+          (json-response `(:observers ,observers)))
+        (error-response "Invalid ticket ID"))))
+
+(defun handle-add-ticket-observer (env)
+  "POST /api/tickets/:id/observers"
+  (let ((ticket-id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/observers$")))
+    (if ticket-id
+        (bind ((body (parse-json-body env))
+               (observer-type (json-assoc :observer_type body))
+               (observer-id (json-assoc :observer_id body)))
+          (unless observer-type
+            (return-from handle-add-ticket-observer (error-response "Observer type is required")))
+          (unless observer-id
+            (return-from handle-add-ticket-observer (error-response "Observer ID is required")))
+          (add-ticket-observer ticket-id observer-type
+                              (if (stringp observer-id) (parse-integer observer-id) observer-id))
+          (json-response `(:message "Observer added")))
+        (error-response "Invalid ticket ID"))))
+
+(defun handle-remove-ticket-observer (env)
+  "DELETE /api/tickets/:id/observers/:type/:observer_id"
+  (let* ((path (getf env :path-info))
+         (ticket-id (extract-id-from-path path "^/api/tickets/(\\d+)/observers/.+$"))
+         (parts (ppcre:register-groups-bind (tid observer-type observer-id)
+                    ("^/api/tickets/(\\d+)/observers/(user|group)/(\\d+)$" path)
+                  (list (when tid (parse-integer tid))
+                        observer-type
+                        (when observer-id (parse-integer observer-id))))))
+    (if (and ticket-id (first parts) (second parts) (third parts))
+        (progn
+          (remove-ticket-observer ticket-id (second parts) (third parts))
+          (json-response `(:message "Observer removed")))
+        (error-response "Invalid ticket ID, observer type, or observer ID"))))

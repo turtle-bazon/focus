@@ -49,10 +49,21 @@
         (list "")))
 
 (defun %json-assoc-key (json key)
-  "Look up KEY in a cl-json decoded alist. Handles double-hyphen keywords."
-  (let ((kw (intern (substitute #\- #\_ (string-upcase key)) :keyword)))
-    (or (cdr (assoc kw json :test #'equal))
-        (cdr (assoc (intern (format nil "~{~a~}" (map 'list (lambda (c) (if (char= c #\_) #\- c)) (string-downcase (symbol-name kw)))) :keyword) json :test #'equal)))))
+  "Look up KEY in a cl-json decoded alist. Handles double-hyphen keywords.
+cl-json converts json_key to :json--key (double hyphen)."
+  (let* ((kw-single (intern (substitute #\- #\_ (string-upcase key)) :keyword))
+         ;; cl-json converts _ to -- (double hyphen), e.g. first_name → :first--name
+         (doubled (with-output-to-string (s)
+                    (loop for ch across key
+                          if (char= ch #\_)
+                            do (write-string "--" s)
+                          else
+                            do (write-char (char-upcase ch) s))))
+         (kw-double (intern doubled :keyword))
+         (kw-lower (intern (string-downcase doubled) :keyword)))
+    (or (cdr (assoc kw-single json :test #'equal))
+        (cdr (assoc kw-double json :test #'equal))
+        (cdr (assoc kw-lower json :test #'equal)))))
 
 (defun %clean-json-value (val)
   "Filter out cl-json's representation of JSON false/true/null and string \"false\"/\"true\"."
@@ -102,14 +113,15 @@ Returns (values email name username picture) or signals an error."
   (setf email (%clean-json-value email)
         name (%clean-json-value name)
         username (%clean-json-value username))
-  (let* ((existing (when email (get-user-by-email email)))
-         (user (if existing
-                   (update-user (getf existing :id) :picture picture)
-                   (create-user (or username name email "user")
-                                (or email (format nil "~a@oauth" (or username "user")))
-                                :picture picture)))
+  (let* ((existing (or (when email (get-user-by-email email))
+                       (when username (get-user-by-username username))))
+         (user-id (if existing
+                      (progn (update-user (getf existing :id) :picture picture)
+                             (getf existing :id))
+                      (create-user (or username name email "user")
+                                   (or email (format nil "~a@oauth" (or username "user")))
+                                   :picture picture)))
          (session-id (generate-session-id))
-         (user-id (getf user :id))
          (cookie-header (cl-oauth2:make-set-cookie-header
                          "focus_session" session-id
                          :max-age 86400)))

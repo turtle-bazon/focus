@@ -123,3 +123,55 @@
  :comment-form-version
  (fn [db _]
    (:comment-form-version db)))
+
+(rf/reg-sub
+ :groups
+ (fn [db _]
+   (:groups db)))
+
+(rf/reg-sub
+ :group-map
+ (fn [db _]
+   (into {} (map #(vector (:id %) %) (:groups db)))))
+
+(rf/reg-sub
+ :group-members
+ (fn [db _]
+   (:group-members db)))
+
+(rf/reg-sub
+ :group-members-modal
+ (fn [db _]
+   (:group-members-modal db)))
+
+(rf/reg-sub
+ :create-group-modal
+ (fn [db _]
+   (:create-group-modal db)))
+
+(rf/reg-sub
+ :ticket-observers
+ (fn [db _]
+   (:ticket-observers db)))
+
+(rf/reg-sub
+ :is-admin
+ (fn [db _]
+   (let [user (get-in db [:auth :user])]
+     (= "admin" (:role user)))))
+
+(rf/reg-sub
+ :can-manage-users
+ (fn [db _]
+   (let [role (get-in db [:auth :user :role])]
+     (or (= "admin" role) (= "group_manager" role)))))
+
+(rf/reg-sub
+ :settings-tab
+ (fn [db _]
+   (:settings-tab db)))
+
+(rf/reg-sub
+ :confirm-modal
+ (fn [db _]
+   (:confirm-modal db)))

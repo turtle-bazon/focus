@@ -31,6 +31,10 @@
   (rf/dispatch [:fetch-ticket-detail (js/parseInt id)])
   (rf/dispatch [:set-view :detail]))
 
+(secretary/defroute "/settings" []
+  (rf/dispatch [:set-view :settings])
+  (rf/dispatch [:fetch-settings-data]))
+
 (defn mount-root []
   (let [app-el (.getElementById js/document "app")]
     (set! (.. app-el -style -display) "block")
@@ -51,6 +55,7 @@
   (rf/dispatch [:fetch-tickets {}])
   (rf/dispatch [:fetch-users])
   (rf/dispatch [:fetch-labels])
+  (rf/dispatch [:fetch-groups])
   (ws/connect))
 
 (goog.object/set js/window "init" init)

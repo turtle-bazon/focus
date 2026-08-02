@@ -12,6 +12,9 @@
     :tickets []
     :users []
     :labels []
+    :groups []
+    :group-members {}
+    :ticket-observers {}
     :current-ticket nil
     :comments []
     :comments-total 0
@@ -24,6 +27,7 @@
     :error nil
      :active-tab :comments
      :comment-form-version 0
+     :confirm-modal nil
      :locale (i18n/get-saved-locale)}))
 
 (rf/reg-event-db
@@ -70,12 +74,15 @@
          path (.-pathname js/window.location)]
      (when authenticated
        (js/initBoard))
-     (assoc db
-            :auth response
-            :loading false
-             :current-view (if authenticated
-                             (if (re-matches #"/tickets/\d+(/.*)?" path) :detail :board)
-                             :landing)))))
+      (assoc db
+             :auth response
+             :loading false
+              :current-view (if authenticated
+                              (cond
+                                (re-matches #"/tickets/\d+(/.*)?" path) :detail
+                                (= path "/settings") :settings
+                                :else :board)
+                              :landing)))))
 
 (rf/reg-event-fx
  :logout
@@ -284,6 +291,10 @@
       (rf/dispatch [:set-activity-initial (:activity response) (:total response)]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to fetch activity: " error)])))
+   (api/fetch-ticket-observers id
+    (fn [response]
+      (rf/dispatch [:set-ticket-observers id (:observers response)]))
+    (fn [_]))
    {:db (assoc db :current-ticket nil :comments [] :activity []
                :comments-total 0 :comments-loading false
                :activity-total 0 :activity-loading false)}))
@@ -407,3 +418,233 @@
           (update :comments #(vec (cons comment %)))
           (update :comments-total inc))
      db)))
+
+;;; Group events
+
+(rf/reg-event-fx
+ :fetch-groups
+ (fn [{:keys [db]} _]
+   (api/fetch-groups
+    (fn [response]
+      (let [groups (:groups response)]
+        (doseq [group groups]
+          (rf/dispatch [:fetch-group-members (:id group)]))
+        (rf/dispatch [:set-groups groups])))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to fetch groups: " error)])))
+   {:db db}))
+
+(rf/reg-event-db
+ :set-groups
+ (fn [db [_ groups]]
+   (assoc db :groups groups)))
+
+(rf/reg-event-fx
+ :create-group
+ (fn [{:keys [db]} [_ data]]
+   (api/create-group data
+    (fn [_]
+      (rf/dispatch [:fetch-groups]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to create group: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :update-group
+ (fn [{:keys [db]} [_ id data]]
+   (api/update-group id data
+    (fn [_]
+      (rf/dispatch [:fetch-groups]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to update group: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :delete-group
+ (fn [{:keys [db]} [_ id]]
+   (api/delete-group id
+    (fn [_]
+      (rf/dispatch [:fetch-groups]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to delete group: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :fetch-group-members
+ (fn [{:keys [db]} [_ group-id]]
+   (api/fetch-group-members group-id
+    (fn [response]
+      (rf/dispatch [:set-group-members group-id (:members response)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to fetch group members: " error)])))
+   {:db db}))
+
+(rf/reg-event-db
+ :set-group-members
+ (fn [db [_ group-id members]]
+   (assoc-in db [:group-members group-id] members)))
+
+(rf/reg-event-fx
+ :add-group-member
+ (fn [{:keys [db]} [_ group-id user-id]]
+   (api/add-group-member group-id user-id
+    (fn [_]
+      (rf/dispatch [:fetch-group-members group-id]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to add member: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :remove-group-member
+  (fn [{:keys [db]} [_ group-id user-id]]
+    (api/remove-group-member group-id user-id
+     (fn [_]
+       (rf/dispatch [:fetch-group-members group-id]))
+     (fn [error]
+       (rf/dispatch [:set-error (str "Failed to remove member: " error)])))
+    {:db db}))
+
+(rf/reg-event-fx
+ :manage-group-members
+ (fn [{:keys [db]} [_ group-id group-name]]
+   (rf/dispatch [:fetch-group-members group-id])
+   {:db (assoc db :group-members-modal {:group-id group-id :group-name group-name})}))
+
+(rf/reg-event-db
+ :close-group-members-modal
+ (fn [db _]
+   (assoc db :group-members-modal nil)))
+
+(rf/reg-event-db
+ :open-create-group-modal
+ (fn [db _]
+   (assoc db :create-group-modal {:open? true :name "" :member-ids #{}})))
+
+(rf/reg-event-db
+ :close-create-group-modal
+ (fn [db _]
+   (assoc db :create-group-modal nil)))
+
+(rf/reg-event-db
+ :set-create-group-name
+ (fn [db [_ name]]
+   (assoc-in db [:create-group-modal :name] name)))
+
+(rf/reg-event-db
+ :add-create-group-member
+ (fn [db [_ user-id]]
+   (assoc-in db [:create-group-modal :member-ids] (conj (get-in db [:create-group-modal :member-ids] #{}) user-id))))
+
+(rf/reg-event-db
+ :remove-create-group-member
+ (fn [db [_ user-id]]
+   (assoc-in db [:create-group-modal :member-ids] (disj (get-in db [:create-group-modal :member-ids] #{}) user-id))))
+
+(rf/reg-event-fx
+ :create-group-from-modal
+ (fn [{:keys [db]} _]
+   (let [name (get-in db [:create-group-modal :name])
+         member-ids (get-in db [:create-group-modal :member-ids] #{})]
+     (when-not (clojure.string/blank? name)
+       (api/post "/groups" {:name name}
+        (fn [response]
+          (doseq [uid member-ids]
+            (api/add-group-member (:id response) uid
+              (fn [_] (rf/dispatch [:fetch-group-members (:id response)]))
+              (fn [_])))
+          (rf/dispatch [:fetch-groups])
+          (rf/dispatch [:close-create-group-modal]))
+        (fn [error]
+          (rf/dispatch [:set-error (str "Failed to create group: " error)]))))
+     {:db db})))
+
+;;; Ticket observer events
+
+(rf/reg-event-fx
+ :fetch-ticket-observers
+ (fn [{:keys [db]} [_ ticket-id]]
+   (api/fetch-ticket-observers ticket-id
+    (fn [response]
+      (rf/dispatch [:set-ticket-observers ticket-id (:observers response)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to fetch observers: " error)])))
+   {:db db}))
+
+(rf/reg-event-db
+ :set-ticket-observers
+ (fn [db [_ ticket-id observers]]
+   (assoc-in db [:ticket-observers ticket-id] observers)))
+
+(rf/reg-event-fx
+ :add-ticket-observer
+ (fn [{:keys [db]} [_ ticket-id observer-type observer-id]]
+   (api/add-ticket-observer ticket-id observer-type observer-id
+    (fn [_]
+      (rf/dispatch [:fetch-ticket-observers ticket-id]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to add observer: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :remove-ticket-observer
+ (fn [{:keys [db]} [_ ticket-id observer-type observer-id]]
+    (api/remove-ticket-observer ticket-id observer-type observer-id
+     (fn [_]
+       (rf/dispatch [:fetch-ticket-observers ticket-id]))
+     (fn [error]
+       (rf/dispatch [:set-error (str "Failed to remove observer: " error)])))
+    {:db db}))
+
+;;; Settings handlers
+
+(rf/reg-event-fx
+ :fetch-settings-data
+ (fn [{:keys [db]} _]
+   (rf/dispatch [:fetch-users])
+   (rf/dispatch [:fetch-groups])
+   {:db (assoc db :settings-tab "users")}))
+
+(rf/reg-event-db
+ :set-settings-tab
+ (fn [db [_ tab]]
+   (assoc db :settings-tab tab)))
+
+(rf/reg-event-fx
+ :update-user-role
+ (fn [{:keys [db]} [_ user-id role]]
+   (api/put (str "/users/" user-id) {:role role}
+     (fn [_]
+       (rf/dispatch [:fetch-users]))
+     (fn [error]
+       (rf/dispatch [:set-error (str "Failed to update user: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :delete-group-settings
+ (fn [{:keys [db]} [_ group-id]]
+   (api/delete (str "/groups/" group-id)
+     (fn [_]
+       (rf/dispatch [:fetch-groups]))
+     (fn [error]
+       (rf/dispatch [:set-error (str "Failed to delete group: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :delete-user
+ (fn [{:keys [db]} [_ user-id]]
+   (api/delete (str "/users/" user-id)
+     (fn [_]
+       (rf/dispatch [:fetch-users]))
+      (fn [error]
+        (rf/dispatch [:set-error (str "Failed to delete user: " error)])))
+    {:db db}))
+
+(rf/reg-event-db
+ :show-confirm-modal
+ (fn [db [_ modal]]
+   (assoc db :confirm-modal modal)))
+
+(rf/reg-event-db
+ :close-confirm-modal
+ (fn [db _]
+   (assoc db :confirm-modal nil)))

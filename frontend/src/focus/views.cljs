@@ -575,9 +575,13 @@
                     (not (nil? (:assignee_id ticket))))
            [:div.ticket-assignee
             [:span.avatar
-             (let [user-map @(rf/subscribe [:user-map])
-                   user (get user-map (js/parseInt (:assignee_id ticket)))]
-               (or (:username user) (str (t :ticket/user-prefix) (:assignee_id ticket))))]])]))))
+             (if (= (:assignee_type ticket) "group")
+               (let [groups @(rf/subscribe [:groups])
+                     group (first (filter #(= (:id %) (js/parseInt (:assignee_id ticket))) groups))]
+                 (str "\uD83D\uDC65 " (or (:name group) (str "Group #" (:assignee_id ticket)))))
+               (let [user-map @(rf/subscribe [:user-map])
+                     user (get user-map (js/parseInt (:assignee_id ticket)))]
+                 (or (:username user) (str (t :ticket/user-prefix) (:assignee_id ticket)))))]])]))))
 
 (defn priority-group [status-id priority tickets]
   (let [drag-idx (r/atom nil)
@@ -763,42 +767,107 @@
          [user-profile-popover user #(reset! open? false)])])))
 
 (defn ticket-detail-header [ticket users]
-  [:div.ticket-detail-header
-   [:button.back-button
-    {:on-click #(js/navigateTo "/")}
-    (t :ticket/back)]
-   [:h1 (str "#" (:id ticket) " " (:title ticket))]
-   [:div.ticket-meta
-    [:select.status-select
-     {:value (:status ticket)
-      :style {:background-color (get-status-color (:status ticket))}
-      :on-change (fn [e]
-                   (rf/dispatch [:update-ticket-field
-                                 (:id ticket)
-                                 :status
-                                 (-> e .-target .-value)]))}
-     [:option {:value "backlog"} (t :status/backlog)]
-     [:option {:value "open"} (t :status/open)]
-     [:option {:value "in_progress"} (t :status/in-progress)]
-     [:option {:value "review"} (t :status/review)]
-     [:option {:value "done"} (t :status/done)]]
-    [:select.priority-select
-     {:value (:priority ticket)
-      :style {:background-color (get-priority-color (:priority ticket))}
-      :on-change (fn [e]
-                   (rf/dispatch [:update-ticket-field
-                                 (:id ticket)
-                                 :priority
-                                 (-> e .-target .-value)]))}
-     [:option {:value "low"} (t :priority/low)]
-     [:option {:value "medium"} (t :priority/medium)]
-     [:option {:value "high"} (t :priority/high)]]
-    (when (and (:assignee_id ticket)
-               (not= (:assignee_id ticket) "null")
-               (not (nil? (:assignee_id ticket))))
-      [:span.assignee-badge
-       (let [user (first (filter #(= (:id %) (js/parseInt (:assignee_id ticket))) users))]
-         (or (:username user) (str (t :ticket/user-prefix) (:assignee_id ticket))))])]])
+  (let [groups @(rf/subscribe [:groups])
+        observers @(rf/subscribe [:ticket-observers])
+        ticket-observers (get observers (:id ticket) [])]
+    [:div.ticket-detail-header
+     [:button.back-button
+      {:on-click #(js/navigateTo "/")}
+      (t :ticket/back)]
+     [:h1 (str "#" (:id ticket) " " (:title ticket))]
+     [:div.ticket-meta
+      [:select.status-select
+       {:value (:status ticket)
+        :style {:background-color (get-status-color (:status ticket))}
+        :on-change (fn [e]
+                     (rf/dispatch [:update-ticket-field
+                                   (:id ticket)
+                                   :status
+                                   (-> e .-target .-value)]))}
+       [:option {:value "backlog"} (t :status/backlog)]
+       [:option {:value "open"} (t :status/open)]
+       [:option {:value "in_progress"} (t :status/in-progress)]
+       [:option {:value "review"} (t :status/review)]
+       [:option {:value "done"} (t :status/done)]]
+      [:select.priority-select
+       {:value (:priority ticket)
+        :style {:background-color (get-priority-color (:priority ticket))}
+        :on-change (fn [e]
+                     (rf/dispatch [:update-ticket-field
+                                   (:id ticket)
+                                   :priority
+                                   (-> e .-target .-value)]))}
+       [:option {:value "low"} (t :priority/low)]
+       [:option {:value "medium"} (t :priority/medium)]
+       [:option {:value "high"} (t :priority/high)]]
+      ;; Assignee selector (user or group)
+      [:div.assignee-section
+       [:label.assignee-label (t :ticket/assignee)]
+       [:select.assignee-select
+        {:value (str (:assignee_type ticket "user") ":" (or (:assignee_id ticket) ""))
+         :on-change (fn [e]
+                      (let [val (-> e .-target .-value)]
+                        (if (or (nil? val) (= val ":") (= val "user:") (= val "group:"))
+                          (rf/dispatch [:update-ticket-field
+                                        (:id ticket)
+                                        :assignee_id nil])
+                          (let [[type id] (str/split val #":")]
+                            (rf/dispatch [:update-ticket-field
+                                          (:id ticket)
+                                          :assignee_id (js/parseInt id)])
+                            (rf/dispatch [:update-ticket-field
+                                          (:id ticket)
+                                          :assignee_type type])))))}
+        [:option {:value "user:"} (t :ticket/unassigned)]
+        (for [user users]
+          ^{:key (str "user-" (:id user))}
+          [:option {:value (str "user:" (:id user))} (:username user)])
+        (for [group groups]
+          ^{:key (str "group-" (:id group))}
+          [:option {:value (str "group:" (:id group))} (str "\uD83D\uDC65 " (:name group))])]]
+     ;; Observers section
+     [:div.observers-section
+      [:label.observers-label (t :ticket/observers)]
+      [:div.observers-list
+       (for [obs ticket-observers]
+         ^{:key (str (:observer_type obs) "-" (:observer_id obs))}
+         [:span.observer-badge
+          (let [name (if (= (:observer_type obs) "group")
+                       (let [group (first (filter #(= (:id %) (:observer_id obs)) groups))]
+                         (or (:name group) (str "Group #" (:observer_id obs))))
+                       (let [user (first (filter #(= (:id %) (:observer_id obs)) users))]
+                         (or (:username user) (str (t :ticket/user-prefix) (:observer_id obs)))))]
+            [:span.observer-name name]
+            [:button.observer-remove
+             {:on-click #(rf/dispatch [:remove-ticket-observer
+                                       (:id ticket)
+                                       (:observer_type obs)
+                                       (:observer_id obs)])}
+             "\u00D7"])])
+       ;; Add observer dropdown
+       [:select.add-observer-select
+        {:value ""
+         :on-change (fn [e]
+                      (let [val (-> e .-target .-value)]
+                        (when (and val (not= val ""))
+                          (let [[type id] (str/split val #":")]
+                            (rf/dispatch [:add-ticket-observer
+                                          (:id ticket)
+                                          type
+                                          (js/parseInt id)])))))}
+        [:option {:value ""} (t :ticket/add-observer)]
+        (for [user users
+              :when (not (some #(and (= (:observer_type %) "user")
+                                     (= (:observer_id %) (:id user)))
+                               ticket-observers))]
+          ^{:key (str "add-user-" (:id user))}
+          [:option {:value (str "user:" (:id user))} (str "\u2795 " (:username user))])
+        (for [group groups
+              :when (not (some #(and (= (:observer_type %) "group")
+                                     (= (:observer_id %) (:id group)))
+                               ticket-observers))]
+          ^{:key (str "add-group-" (:id group))}
+          [:option {:value (str "group:" (:id group))} (str "\uD83D\uDC65 +" (:name group))])]]]]]))
 
 (defn comment-form [ticket-id new-comment user-id]
   (let [last-version (r/atom 0)]
@@ -1089,12 +1158,19 @@
               [:span.user-menu-chevron "\u25BE"]]
              (when @open?
                [:div.user-menu-dropdown
+                (when @(rf/subscribe [:can-manage-users])
+                  [:button.user-menu-item
+                   {:on-click (fn []
+                                (reset! open? false)
+                                (js/navigateTo "/settings"))}
+                   [:span.user-menu-item-icon "\u2699"]
+                   (t :settings/title)])
                 [:button.user-menu-item
                  {:on-click (fn []
                               (reset! open? false)
                               (rf/dispatch [:logout]))}
                  [:span.user-menu-item-icon "\u2192"]
-                 (t :nav/logout)]])])))})))
+                  (t :nav/logout)]])])))})))
 
 (defn nav-bar []
   (let [current-view @(rf/subscribe [:current-view])]
@@ -1112,6 +1188,266 @@
       [language-switcher]
       [user-menu]]]))
 
+(defn settings-view []
+  (fn []
+      (let [tab @(rf/subscribe [:settings-tab])
+            users @(rf/subscribe [:users])
+            groups @(rf/subscribe [:groups])
+            group-members @(rf/subscribe [:group-members])]
+        [:div.settings-page
+         [:h1 (t :settings/title)]
+         [:div.settings-tabs
+          [:button {:class (when (= tab "users") "active")
+                    :on-click #(rf/dispatch [:set-settings-tab "users"])}
+           (t :settings/users)]
+          [:button {:class (when (= tab "groups") "active")
+                    :on-click #(rf/dispatch [:set-settings-tab "groups"])}
+           (t :settings/groups)]]
+         (case tab
+           "users"
+           [:div.settings-content
+            [:table.settings-table
+             [:thead
+              [:tr
+               [:th (t :settings/id)]
+               [:th (t :settings/name)]
+               [:th (t :settings/email)]
+               [:th (t :settings/role)]
+               [:th ""]]]
+             [:tbody
+              (let [current-user-id (get-in @(rf/subscribe [:auth]) [:user :id])]
+                (for [user users]
+                  ^{:key (:id user)}
+                  [:tr
+                   [:td (:id user)]
+                   [:td (:username user)]
+                   [:td (:email user)]
+                   [:td
+                    [:select {:value (:role user "user")
+                              :on-change #(rf/dispatch [:update-user-role (:id user) (-> % .-target .-value)])}
+                     [:option {:value "user"} (t :settings/user)]
+                     [:option {:value "group_manager"} (t :settings/group-manager)]
+                     [:option {:value "admin"} (t :settings/admin)]]]
+                    [:td
+                     (when (not= (:id user) current-user-id)
+                       [:button.btn-delete
+                         {:title (t :settings/delete-user)
+                          :on-click #(rf/dispatch [:show-confirm-modal
+                                                   {:title (t :confirm/delete-user-title)
+                                                    :message (str (t :confirm/delete-user-message) " " (:username user) "?")
+                                                    :confirm-label (t :settings/delete-user)
+                                                    :cancel-label (t :ticket/cancel)
+                                                    :on-confirm (fn [] (rf/dispatch [:delete-user (:id user)]))}])}
+                        [:svg.trash-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+                         [:polyline {:points "3 6 5 6 21 6"}]
+                         [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
+                         [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
+                         [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]])]]))]]]
+            "groups"
+            [:div.settings-content
+             [:div.settings-groups-header
+              [:button.btn-new-group
+               {:on-click #(rf/dispatch [:open-create-group-modal])}
+               (t :settings/new-group)]]
+             (if (empty? groups)
+               [:p.settings-empty (t :settings/no-groups)]
+               [:table.settings-table
+                [:thead
+                 [:tr
+                  [:th (t :settings/name)]
+                  [:th (t :settings/members)]
+                  [:th ""]]]
+                [:tbody
+                 (for [group groups]
+                   ^{:key (:id group)}
+                    [:tr
+                    [:td (:name group)]
+                    [:td.settings-group-members
+                     (let [members (get group-members (:id group))]
+                       (if (empty? members)
+                         [:span.settings-muted (t :settings/no-members)]
+                         [:div.settings-group-member-tags
+                          (for [member members]
+                            ^{:key (:id member)}
+                            [:span.settings-member-tag (:username member)])]))]
+                    [:td.settings-group-actions
+                     [:button.btn-manage-members
+                      {:title (t :settings/members)
+                       :on-click #(rf/dispatch [:manage-group-members (:id group) (:name group)])}
+                      [:svg.group-users-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+                       [:path {:d "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"}]
+                       [:circle {:cx 9 :cy 7 :r 4}]
+                       [:path {:d "M23 21v-2a4 4 0 0 0-3-3.87"}]
+                       [:path {:d "M16 3.13a4 4 0 0 1 0 7.75"}]]
+                      (str " " (t :settings/members))]
+                     [:button.btn-delete
+                      {:title (t :settings/delete)
+                       :on-click #(rf/dispatch [:show-confirm-modal
+                                                {:title (t :confirm/delete-group-title)
+                                                 :message (str (t :confirm/delete-group-message) " " (:name group) "?")
+                                                 :confirm-label (t :settings/delete)
+                                                 :cancel-label (t :ticket/cancel)
+                                                 :on-confirm (fn [] (rf/dispatch [:delete-group-settings (:id group)]))}])}
+                      [:svg.trash-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+                       [:polyline {:points "3 6 5 6 21 6"}]
+                       [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
+                       [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
+                        [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]]]])]])])])))
+
+(defn confirm-modal []
+  (let [modal @(rf/subscribe [:confirm-modal])]
+    (when modal
+      (let [{:keys [title message confirm-label cancel-label on-confirm]} modal]
+        [:div.modal-overlay.confirm-overlay
+         {:on-click #(rf/dispatch [:close-confirm-modal])}
+         [:div.confirm-modal
+          {:on-click #(.stopPropagation %)}
+          [:div.confirm-modal-icon
+           [:svg {:view-box "0 0 24 24" :width 28 :height 28 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+            [:path {:d "M12 9v4"}]
+            [:path {:d "M12 17h.01"}]
+            [:path {:d "M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"}]]]
+          [:h3.confirm-modal-title (or title (t :settings/delete))]
+          [:p.confirm-modal-message (or message "")]
+          [:div.confirm-modal-actions
+           [:button.btn-cancel
+            {:on-click #(rf/dispatch [:close-confirm-modal])}
+            (or cancel-label (t :ticket/cancel))]
+           [:button.btn-confirm-danger
+            {:on-click (fn []
+                         (rf/dispatch [:close-confirm-modal])
+                         (when on-confirm (on-confirm)))}
+            (or confirm-label (t :settings/delete))]]]]))))
+
+(defn- user-dropdown-options
+  [options on-select close]
+  (if (empty? options)
+    [:div.settings-user-picker.empty (t :settings/no-members)]
+    [:div.settings-user-picker
+     (for [opt options]
+       ^{:key (:id opt)}
+       [:div.settings-user-picker-item
+        {:on-click (fn []
+                     (close)
+                     (on-select opt))}
+        (:username opt)])]))
+
+(defn user-dropdown
+  [{:keys [options on-select placeholder]}]
+  (let [open? (r/atom false)
+        wrap (r/atom nil)
+        outside-handler
+        (fn [e]
+          (when (and @open? @wrap (not (.contains @wrap (.-target e))))
+            (reset! open? false)))]
+    (r/create-class
+     {      :component-did-mount
+      (fn [_]
+        (.addEventListener js/document "mousedown" outside-handler))
+      :component-will-unmount
+      (fn [_]
+        (.removeEventListener js/document "mousedown" outside-handler))
+      :reagent-render
+      (fn [{:keys [options on-select placeholder]}]
+        [:div.settings-user-picker-wrap
+         {:ref #(reset! wrap %)
+          :class (when @open? "open")}
+         [:button.settings-user-picker-btn
+          {:type "button"
+           :on-click #(swap! open? not)}
+          [:span (or placeholder (t :settings/select-user))]
+          [:svg.chevron-icon {:view-box "0 0 24 24" :width 14 :height 14 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+           [:polyline {:points "6 9 12 15 18 9"}]]]
+         (when @open?
+           [user-dropdown-options options
+            (fn [opt] (on-select opt))
+            (fn [] (reset! open? false))])])})))
+
+(defn group-members-modal []
+  (let [modal @(rf/subscribe [:group-members-modal])
+        group-members @(rf/subscribe [:group-members])
+        users @(rf/subscribe [:users])]
+    (when modal
+      (let [group-id (:group-id modal)
+            members (get group-members group-id [])
+            member-ids (set (map :id members))
+            candidates (remove #(contains? member-ids (:id %)) users)]
+        [:div.modal-overlay.confirm-overlay
+         {:on-click #(rf/dispatch [:close-group-members-modal])}
+         [:div.confirm-modal.group-members-modal
+          {:on-click #(.stopPropagation %)}
+          [:h3.confirm-modal-title (:group-name modal)]
+          (if (empty? members)
+            [:p.confirm-modal-message (t :settings/no-members)]
+            [:div.settings-members-list
+             (for [member members]
+               ^{:key (:id member)}
+               [:div.settings-member-row
+                [:span.settings-member-name (or (:username member) (str (:id member)))]
+                [:button.btn-delete.btn-mini
+                 {:title (t :settings/remove-member)
+                  :on-click #(rf/dispatch [:remove-group-member group-id (:id member)])}
+                 [:svg.trash-icon {:view-box "0 0 24 24" :width 14 :height 14 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+                  [:polyline {:points "3 6 5 6 21 6"}]
+                  [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
+                  [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
+                  [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]]])])
+          [:div.settings-members-add
+           [user-dropdown
+            {:options candidates
+             :placeholder (t :settings/select-user)
+             :on-select (fn [user]
+                          (rf/dispatch [:add-group-member group-id (:id user)]))}]]]]))))
+
+(defn create-group-modal []
+  (let [modal @(rf/subscribe [:create-group-modal])
+        users @(rf/subscribe [:users])
+        user-map (into {} (map (fn [u] [(:id u) u]) users))]
+    (when (:open? modal)
+      (let [name (:name modal)
+            member-ids (or (:member-ids modal) #{})]
+        [:div.modal-overlay.confirm-overlay
+         {:on-click #(rf/dispatch [:close-create-group-modal])}
+         [:div.confirm-modal.group-create-modal
+          {:on-click #(.stopPropagation %)}
+          [:h3.confirm-modal-title (t :settings/create-group)]
+          [:input.settings-group-name-input
+           {:type "text"
+            :placeholder (t :settings/group-name-placeholder)
+            :value name
+            :on-change #(rf/dispatch [:set-create-group-name (-> % .-target .-value)])
+            :on-key-down (fn [e]
+                           (when (= (.-key e) "Enter")
+                             (rf/dispatch [:create-group-from-modal])))}]
+          (if (empty? member-ids)
+            [:p.confirm-modal-message (t :settings/no-members)]
+            [:div.settings-members-list
+             (for [uid member-ids]
+               ^{:key uid}
+               [:div.settings-member-row
+                [:span.settings-member-name (or (:username (get user-map uid)) (str uid))]
+                [:button.btn-delete.btn-mini
+                 {:title (t :settings/remove-member)
+                  :on-click #(rf/dispatch [:remove-create-group-member uid])}
+                 [:svg.trash-icon {:view-box "0 0 24 24" :width 14 :height 14 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+                  [:polyline {:points "3 6 5 6 21 6"}]
+                  [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
+                  [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
+                  [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]]])])
+          [:div.settings-members-add
+           [user-dropdown
+            {:options (remove #(contains? member-ids (:id %)) users)
+             :placeholder (t :settings/select-user)
+             :on-select (fn [user]
+                          (rf/dispatch [:add-create-group-member (:id user)]))}]]
+          [:div.confirm-modal-actions
+           [:button.btn-cancel
+            {:on-click #(rf/dispatch [:close-create-group-modal])}
+            (t :ticket/cancel)]
+           [:button.btn-confirm-primary
+            {:on-click #(rf/dispatch [:create-group-from-modal])}
+            (t :settings/create-group)]]]]))))
+
 (defn app-panel []
   (let [current-view @(rf/subscribe [:current-view])]
     [:div.app
@@ -1122,7 +1458,11 @@
        :board [board-view]
        :list [board-view]
        :detail [ticket-detail]
-       [board-view])]))
+       :settings [settings-view]
+       [board-view])
+     [confirm-modal]
+     [group-members-modal]
+     [create-group-modal]]))
 
 (defn main-panel []
   (let [authenticated? @(rf/subscribe [:authenticated?])

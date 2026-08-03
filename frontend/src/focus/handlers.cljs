@@ -122,13 +122,15 @@
 (rf/reg-event-fx
  :create-ticket
  (fn [{:keys [db]} [_ data]]
-   (api/create-ticket data
-    (fn [response]
-      (rf/dispatch [:add-ticket {:id (:id response)
-                                :title (:title data)
-                                :description (:description data)
-                                :priority (:priority data)
-                                :status "open"}]))
+(api/create-ticket data
+     (fn [response]
+       (rf/dispatch [:add-ticket {:id (:id response)
+                                 :title (:title data)
+                                 :description (:description data)
+                                 :priority (:priority data)
+                                 :assignee_id (:assignee_id data)
+                                 :assignee_type (:assignee_type data)
+                                 :status "open"}]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create ticket: " error)])))
    {:db db}))

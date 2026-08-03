@@ -674,12 +674,17 @@
         title (r/atom "")
         description (r/atom "")
         priority (r/atom "medium")
-        users @(rf/subscribe [:users])]
+        assignee (r/atom "")]
     (fn []
-      [:div
-       [:button.create-button
-        {:on-click #(reset! show-modal true)}
-        (t :ticket/new)]
+      (let [users @(rf/subscribe [:users])
+            groups @(rf/subscribe [:groups])]
+        [:div
+[:button.create-button
+         {:on-click (fn []
+                      (rf/dispatch [:fetch-users])
+                      (rf/dispatch [:fetch-groups])
+                      (reset! show-modal true))}
+         (t :ticket/new)]
        (when @show-modal
          [:div.modal-overlay
           {:on-click #(reset! show-modal false)}
@@ -703,23 +708,41 @@
                       :on-change #(reset! priority (-> % .-target .-value))}
              [:option {:value "low"} (t :priority/low-label)]
              [:option {:value "medium"} (t :priority/medium-label)]
-             [:option {:value "high"} (t :priority/high-label)]]]
-           [:div.modal-actions
+[:option {:value "high"} (t :priority/high-label)]]]
+            [:div.form-group
+             [:label (t :ticket/assignee)]
+             [:select.assignee-select
+              {:value @assignee
+               :on-change #(reset! assignee (-> % .-target .-value))}
+              [:option {:value ""} (t :ticket/unassigned)]
+              (for [user users]
+                [:option {:key (str "u" (:id user)) :value (str "user:" (:id user))}
+                 (:username user)])
+              (for [group groups]
+                [:option {:key (str "g" (:id group)) :value (str "group:" (:id group))}
+                 (str "\uD83D\uDC65 " (:name group))])]]
+            [:div.modal-actions
             [:button.cancel-button
              {:on-click #(reset! show-modal false)}
              (t :ticket/cancel)]
             [:button.submit-button
-             {:on-click (fn []
-                          (when (seq @title)
-                            (rf/dispatch [:create-ticket
-                                          {:title @title
-                                           :description @description
-                                           :priority @priority}])
-                            (reset! show-modal false)
-                            (reset! title "")
-                            (reset! description "")
-                            (reset! priority "medium")))}
-             (t :ticket/create-btn)]]]])])))
+{:on-click (fn []
+                           (when (seq @title)
+                             (let [[assignee-type assignee-id]
+                                   (when (seq @assignee) (str/split @assignee #":"))]
+                               (rf/dispatch [:create-ticket
+                                             {:title @title
+                                              :description @description
+                                              :priority @priority
+                                              :assignee_type assignee-type
+                                              :assignee_id (when (and assignee-type assignee-id)
+                                                             (js/parseInt assignee-id))}])
+                               (reset! show-modal false)
+                               (reset! title "")
+                               (reset! description "")
+                               (reset! priority "medium")
+(reset! assignee ""))))}
+                               (t :ticket/create-btn)]]]])]))))
 
 
 

@@ -1,0 +1,1 @@
+ALTER TABLE tickets ADD CONSTRAINT issues_assignee_id_fkey FOREIGN KEY (assignee_id) REFERENCES users(id);

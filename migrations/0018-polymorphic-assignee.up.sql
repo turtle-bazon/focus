@@ -1,0 +1,1 @@
+ALTER TABLE tickets DROP CONSTRAINT IF EXISTS issues_assignee_id_fkey;

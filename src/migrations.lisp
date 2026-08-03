@@ -203,4 +203,7 @@ CREATE INDEX idx_ticket_observers_ticket ON ticket_observers(ticket_id);
 UPDATE users SET role = 'admin' WHERE id = 1;
 "
 )
+    ("0018-0018-polymorphic-assigne"
+     :up "ALTER TABLE tickets DROP CONSTRAINT IF EXISTS issues_assignee_id_fkey;"
+)
 ))

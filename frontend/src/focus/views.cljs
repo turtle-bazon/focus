@@ -860,13 +860,13 @@
                          (or (:name group) (str "Group #" (:observer_id obs))))
                        (let [user (first (filter #(= (:id %) (:observer_id obs)) users))]
                          (or (:username user) (str (t :ticket/user-prefix) (:observer_id obs)))))]
-            [:span.observer-name name]
-            [:button.observer-remove
-             {:on-click #(rf/dispatch [:remove-ticket-observer
-                                       (:id ticket)
-                                       (:observer_type obs)
-                                       (:observer_id obs)])}
-             "\u00D7"])])
+            [:span.observer-name name])
+          [:button.observer-remove
+           {:on-click #(rf/dispatch [:remove-ticket-observer
+                                     (:id ticket)
+                                     (:observer_type obs)
+                                     (:observer_id obs)])}
+            "\u00D7"]])
        ;; Add observer dropdown
        [:select.add-observer-select
         {:value ""

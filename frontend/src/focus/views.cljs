@@ -563,7 +563,7 @@
          [:div.ticket-card-header
           [:span.ticket-id (str "#" (:id ticket))]
           [:span.ticket-priority
-           {:style {:background-color (or (:color ticket) (get-priority-color (:priority ticket)))}}
+           {:style {:background-color (get-priority-color (:priority ticket))}}
            (case (:priority ticket)
              "low" (t :priority/low)
              "medium" (t :priority/medium)

@@ -16,6 +16,8 @@
     :board/personal "Personal"
     :board/common "Common"
     :board/manage-workflow "Manage workflow"
+    :board/activity "Board Activity"
+    :board/activity-empty "No activity yet."
     :board/workflow "Board workflow"
     :board/statuses "Statuses"
     :board/transitions "Transitions"
@@ -114,6 +116,8 @@
    ;; ===== RUSSIAN =====
    :ru
    {:nav/board "Доска"
+    :board/activity "Активность доски"
+    :board/activity-empty "Пока нет активности."
     :nav/list "Список"
     :nav/logout "Выйти"
     :nav/search "Поиск задач..."
@@ -207,6 +211,8 @@
    ;; ===== TURKISH =====
    :tr
    {:nav/board "Pano"
+    :board/activity "Kart Etkinliği"
+    :board/activity-empty "Henüz etkinlik yok."
     :nav/list "Liste"
     :nav/logout "Çıkış"
     :nav/search "Bilet ara..."
@@ -300,6 +306,8 @@
    ;; ===== UKRAINIAN =====
    :uk
    {:nav/board " Дошка"
+    :board/activity "Активність дошки"
+    :board/activity-empty "Поки немає активності."
     :nav/list "Список"
     :nav/logout "Вийти"
     :nav/search "Пошук завдань..."
@@ -393,6 +401,8 @@
    ;; ===== MANDARIN CHINESE =====
    :zh
    {:nav/board "看板"
+    :board/activity "看板动态"
+    :board/activity-empty "暂无动态。"
     :nav/list "列表"
     :nav/logout "退出"
     :nav/search "搜索工单..."
@@ -486,6 +496,8 @@
    ;; ===== FRENCH =====
    :fr
    {:nav/board "Tableau"
+    :board/activity "Activité du tableau"
+    :board/activity-empty "Aucune activité pour le moment."
     :nav/list "Liste"
     :nav/logout "Déconnexion"
     :nav/search "Rechercher des tickets..."
@@ -579,6 +591,8 @@
    ;; ===== GERMAN =====
    :de
    {:nav/board "Board"
+    :board/activity "Board-Aktivität"
+    :board/activity-empty "Noch keine Aktivität."
     :nav/list "Liste"
     :nav/logout "Abmelden"
     :nav/search "Tickets suchen..."
@@ -672,6 +686,8 @@
    ;; ===== SPANISH =====
    :es
    {:nav/board "Tablero"
+    :board/activity "Actividad del tablero"
+    :board/activity-empty "Aún no hay actividad."
     :nav/list "Lista"
     :nav/logout "Cerrar sesión"
     :nav/search "Buscar tickets..."
@@ -765,6 +781,8 @@
    ;; ===== JAPANESE =====
    :ja
    {:nav/board "ボード"
+    :board/activity "ボードのアクティビティ"
+    :board/activity-empty "まだアクティビティはありません。"
     :nav/list "リスト"
     :nav/logout "ログアウト"
     :nav/search "チケットを検索..."
@@ -858,6 +876,8 @@
    ;; ===== HINDI =====
    :hi
    {:nav/board "बोर्ड"
+    :board/activity "बोर्ड गतिविधि"
+    :board/activity-empty "अभी कोई गतिविधि नहीं है।"
     :nav/list "सूची"
     :nav/logout "लॉग आउट"
     :nav/search "टिकट खोजें..."
@@ -951,6 +971,8 @@
    ;; ===== ITALIAN =====
    :it
    {:nav/board "Board"
+    :board/activity "Attività della board"
+    :board/activity-empty "Nessuna attività ancora."
     :nav/list "Lista"
     :nav/logout "Esci"
     :nav/search "Cerca ticket..."
@@ -1044,6 +1066,8 @@
    ;; ===== ARABIC =====
    :ar
    {:nav/board "لوحة"
+    :board/activity "نشاط اللوحة"
+    :board/activity-empty "لا يوجد نشاط بعد."
     :nav/list "قائمة"
     :nav/logout "تسجيل خروج"
     :nav/search "بحث في التذاكر..."
@@ -1137,6 +1161,8 @@
    ;; ===== PORTUGUESE =====
    :pt
    {:nav/board "Quadro"
+    :board/activity "Atividade do quadro"
+    :board/activity-empty "Ainda não há atividade."
     :nav/list "Lista"
     :nav/logout "Sair"
     :nav/search "Buscar tickets..."
@@ -1230,6 +1256,8 @@
    ;; ===== KOREAN =====
    :ko
    {:nav/board "보드"
+    :board/activity "보드 활동"
+    :board/activity-empty "아직 활동이 없습니다."
     :nav/list "목록"
     :nav/logout "로그아웃"
     :nav/search "티켓 검색..."
@@ -1323,6 +1351,8 @@
    ;; ===== DUTCH =====
    :nl
    {:nav/board "Bord"
+    :board/activity "Bordactiviteit"
+    :board/activity-empty "Nog geen activiteit."
     :nav/list "Lijst"
     :nav/logout "Uitloggen"
     :nav/search "Tickets zoeken..."
@@ -1416,6 +1446,8 @@
    ;; ===== POLISH =====
    :pl
    {:nav/board "Tablica"
+    :board/activity "Aktywność tablicy"
+    :board/activity-empty "Brak aktywności."
     :nav/list "Lista"
     :nav/logout "Wyloguj"
     :nav/search "Szukaj ticketów..."

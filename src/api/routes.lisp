@@ -59,6 +59,8 @@
                  (serve-static-file "index.html"))
             (and (ppcre:scan "^/boards/\\d+$" path)
                  (serve-static-file "index.html"))
+            (and (ppcre:scan "^/boards/\\d+/activity$" path)
+                 (serve-static-file "index.html"))
             (error-response "Not found" 404)))
       ;; 404
       (t
@@ -190,6 +192,9 @@
         ((and (string= path "/api/boards")
               (string= method "POST"))
          (handle-create-board env))
+        ((and (string= method "GET")
+              (ppcre:scan "^/api/boards/\\d+/activity$" path))
+         (handle-list-board-activity env))
         ((and (string= method "GET")
               (ppcre:scan "^/api/boards/\\d+/transitions$" path))
          (handle-list-board-transitions env))

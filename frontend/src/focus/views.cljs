@@ -1266,6 +1266,84 @@
            (when (and has-more (not loading))
              [:div.scroll-sentinel])]))})))
 
+(defn board-activity-item [item user-map]
+  [:div.board-activity-entry
+   [activity-item item user-map]])
+
+(defn group-board-activity [items]
+  "Group consecutive activity rows that belong to the same ticket."
+  (reduce
+   (fn [groups item]
+     (let [last-group (peek groups)]
+       (if (and last-group
+                (= (:ticket_id item) (:ticket_id (first (:items last-group)))))
+         (conj (pop groups) (update last-group :items conj item))
+         (conj groups {:ticket_id (:ticket_id item)
+                       :ticket_title (:ticket_title item)
+                       :items [item]}))))
+   [] items))
+
+(defn board-activity-group [group user-map]
+  [:div.board-activity-group
+   [:div.board-activity-ticket
+    [:a.ticket-link
+     {:href (str "/tickets/" (:ticket_id group))
+      :on-click (fn [e]
+                  (.preventDefault e)
+                  (js/navigateTo (str "/tickets/" (:ticket_id group))))}
+     (str "#" (:ticket_id group) " · " (:ticket_title group))]]
+   (for [item (:items group)]
+     ^{:key (:id item)}
+     [board-activity-item item user-map])])
+
+(defn board-activity-view []
+  (let [container (r/atom nil)
+        observer (r/atom nil)
+        board-id (r/atom nil)]
+    (r/create-class
+     {:component-did-mount
+      (fn [_this]
+        (when-let [el @container]
+          (let [sentinel (.querySelector el ".scroll-sentinel")
+                obs (js/IntersectionObserver.
+                     (fn [entries]
+                       (when (and (.-isIntersecting (first entries)) @board-id)
+                         (rf/dispatch [:load-more-board-activity @board-id])))
+                     #js {:rootMargin "100px"})]
+            (when sentinel (.observe obs sentinel))
+            (reset! observer obs))))
+      :component-will-unmount
+      (fn [_this]
+        (when-let [o @observer] (.disconnect o)))
+      :reagent-render
+      (fn []
+        (let [board @(rf/subscribe [:current-board])
+              activity @(rf/subscribe [:board-activity])
+              user-map @(rf/subscribe [:user-map])
+              loading @(rf/subscribe [:board-activity-loading])
+              has-more @(rf/subscribe [:has-more-board-activity])]
+          (reset! board-id (:id board))
+          [:div.board-activity-page {:ref #(reset! container %)}
+           [:div.board-activity-header
+            [:h1 (t :board/activity)]
+            (when board
+              [:a.back-link
+               {:href (str "/boards/" (:id board))
+                :on-click (fn [e]
+                            (.preventDefault e)
+                            (js/navigateTo (str "/boards/" (:id board))))}
+               (t :ticket/back)])]
+           (if (and (empty? activity) (not loading))
+             [:div.empty-state (t :board/activity-empty)]
+             [:div.activity-list
+              (for [group (group-board-activity activity)]
+                ^{:key (:ticket_id group)}
+                [board-activity-group group user-map])])
+           (when loading
+             [:div.loading-indicator (t :loading)])
+           (when (and has-more (not loading))
+             [:div.scroll-sentinel])]))})))
+
 (defn ticket-detail []
   (let [new-comment (r/atom "")]
     (fn []
@@ -1402,17 +1480,20 @@
                   (t :nav/logout)]])])))})))
 
 (defn nav-bar []
-  (let [current-view @(rf/subscribe [:current-view])]
+  (let [current-view @(rf/subscribe [:current-view])
+        board-id (:id @(rf/subscribe [:current-board]))]
     [:div.nav-bar
      [:div.nav-brand (t :app/title)]
      [:div.nav-links
       [board-dropdown]
       [:a {:class (when (= current-view :board) "active")
-           :on-click #(js/navigateTo "/")}
+           :on-click #(if board-id
+                        (js/navigateTo (str "/boards/" board-id))
+                        (js/navigateTo "/"))}
        (t :nav/board)]
-      [:a {:class (when (= current-view :list) "active")
-           :on-click #(js/navigateTo "/")}
-       (t :nav/list)]
+      [:a {:class (when (= current-view :board-activity) "active")
+           :on-click #(js/navigateTo (str "/boards/" (or board-id "") "/activity"))}
+       (t :tab/activity)]
       [create-ticket-modal]
       [create-board-modal]
       [lifecycle-editor]]
@@ -1688,8 +1769,8 @@
      [error-banner]
      (case current-view
        :board [board-view]
-       :list [board-view]
        :detail [ticket-detail]
+       :board-activity [board-activity-view]
        :settings [settings-view]
        [board-view])
      [confirm-modal]

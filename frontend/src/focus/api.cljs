@@ -80,6 +80,9 @@
 (defn fetch-activity [ticket-id params on-success on-error]
   (get (str "/tickets/" ticket-id "/activity") params on-success on-error))
 
+(defn fetch-board-activity [board-id params on-success on-error]
+  (get (str "/boards/" board-id "/activity") params on-success on-error))
+
 (defn fetch-webhooks [on-success on-error]
   (get "/webhooks" nil on-success on-error))
 

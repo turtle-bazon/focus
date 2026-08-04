@@ -115,6 +115,26 @@
    (< (count (:activity db)) (:activity-total db))))
 
 (rf/reg-sub
+ :board-activity
+ (fn [db _]
+   (:board-activity db)))
+
+(rf/reg-sub
+ :board-activity-total
+ (fn [db _]
+   (:board-activity-total db)))
+
+(rf/reg-sub
+ :board-activity-loading
+ (fn [db _]
+   (:board-activity-loading db)))
+
+(rf/reg-sub
+ :has-more-board-activity
+ (fn [db _]
+   (< (count (:board-activity db)) (:board-activity-total db))))
+
+(rf/reg-sub
  :active-tab
  (fn [db _]
    (:active-tab db)))

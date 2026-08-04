@@ -25,6 +25,9 @@
     :activity []
     :activity-total 0
     :activity-loading false
+    :board-activity []
+    :board-activity-total 0
+    :board-activity-loading false
     :search-query ""
     :loading true
     :error nil
@@ -83,6 +86,7 @@
               :current-view (if authenticated
                               (cond
                                 (re-matches #"/tickets/\d+(/.*)?" path) :detail
+                                (re-matches #"/boards/\d+/activity" path) :board-activity
                                 (= path "/settings") :settings
                                 :else :board)
                               :landing)))))
@@ -394,6 +398,55 @@
           (rf/dispatch [:set-activity-loading false])))))
    {:db db}))
 
+(rf/reg-event-fx
+ :fetch-board-activity
+ (fn [{:keys [db]} [_ board-id]]
+   (let [id (or board-id (:current-board-id db))]
+     (rf/dispatch [:set-board-activity-loading true])
+     (api/fetch-board-activity id {:limit 20 :offset 0}
+      (fn [response]
+        (rf/dispatch [:set-board-activity-initial (:activity response) (:total response)]))
+      (fn [error]
+        (rf/dispatch [:set-board-activity-loading false])
+        (rf/dispatch [:set-error (str "Failed to fetch board activity: " error)])))
+     {:db db})))
+
+(rf/reg-event-db
+ :set-board-activity-initial
+ (fn [db [_ activity total]]
+   (assoc db :board-activity (vec activity) :board-activity-total total
+          :board-activity-loading false)))
+
+(rf/reg-event-db
+ :set-board-activity-more
+ (fn [db [_ activity]]
+   (update db :board-activity #(into (vec %) activity))))
+
+(rf/reg-event-db
+ :set-board-activity-loading
+ (fn [db [_ loading]]
+   (assoc db :board-activity-loading loading)))
+
+(rf/reg-event-db
+ :clear-board-activity
+ (fn [db _]
+   (assoc db :board-activity [] :board-activity-total 0 :board-activity-loading false)))
+
+(rf/reg-event-fx
+ :load-more-board-activity
+ (fn [{:keys [db]} [_ board-id]]
+   (when-not (:board-activity-loading db)
+     (let [id (or board-id (:current-board-id db))
+           offset (count (:board-activity db))]
+       (rf/dispatch [:set-board-activity-loading true])
+       (api/fetch-board-activity id {:limit 20 :offset offset}
+        (fn [response]
+          (rf/dispatch [:set-board-activity-more (:activity response)])
+          (rf/dispatch [:set-board-activity-loading false]))
+        (fn [_error]
+          (rf/dispatch [:set-board-activity-loading false])))))
+   {:db db}))
+
 (rf/reg-event-db
  :ws-update-ticket
  (fn [db [_ ticket]]
@@ -679,9 +732,12 @@
 (rf/reg-event-fx
  :select-board
  (fn [{:keys [db]} [_ board]]
-   (let [board (or board (first (:boards db)))]
+   (let [board (or board (first (:boards db)))
+         view (:current-view db)]
      (when board
-       (js/navigateTo (str "/boards/" (:id board))))
+       (js/navigateTo (if (= view :board-activity)
+                        (str "/boards/" (:id board) "/activity")
+                        (str "/boards/" (:id board)))))
      {:db (assoc db :current-board-id (:id board)
                     :current-board (assoc (:current-board db) :id (:id board)))})))
 
@@ -700,13 +756,16 @@
        (rf/dispatch [:fetch-tickets {}]))
      {:db (assoc db :current-board-id id)})))
 
-(rf/reg-event-db
+(rf/reg-event-fx
  :set-current-board
- (fn [db [_ response]]
-   (assoc db
-          :current-board-id (:id response)
-          :current-board (select-keys response [:id :name :type :is_default :owner_id
-                                                 :statuses :transitions]))))
+ (fn [{:keys [db]} [_ response]]
+   (let [path (.-pathname js/window.location)]
+     (when (= path "/")
+       (js/setUrl (str "/boards/" (:id response))))
+     {:db (assoc db
+                 :current-board-id (:id response)
+                 :current-board (select-keys response [:id :name :type :is_default :owner_id
+                                                        :statuses :transitions]))})))
 
 (rf/reg-event-fx
  :create-board

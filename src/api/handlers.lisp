@@ -344,6 +344,25 @@
           (json-response `(:activity ,activity :total ,total)))
         (error-response "Invalid ticket ID"))))
 
+(defun handle-list-board-activity (env)
+  "GET /api/boards/:id/activity"
+  (let ((board-id (extract-id-from-path (getf env :path-info)
+                                        "^/api/boards/(\\d+)/activity$")))
+    (if board-id
+        (let ((forbidden (board-visibility-response env)))
+          (if forbidden
+              forbidden
+              (let* ((query (getf env :query-string))
+                     (params (parse-query-string query))
+                     (limit-str (cdr (assoc "limit" params :test #'string=)))
+                     (offset-str (cdr (assoc "offset" params :test #'string=)))
+                     (limit (if limit-str (parse-integer limit-str) 20))
+                     (offset (if offset-str (parse-integer offset-str) 0))
+                     (activity (list-board-activity board-id :limit limit :offset offset))
+                     (total (count-board-activity board-id)))
+                (json-response `(:activity ,activity :total ,total)))))
+        (error-response "Invalid board ID"))))
+
 ;;; Search handlers
 
 (defun handle-search-tickets (env)

@@ -569,6 +569,75 @@ body {
   color: #64748b;
 }
 
+/* Board activity */
+.board-activity-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.board-activity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.board-activity-header h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.back-link {
+  color: #94a3b8;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.back-link:hover {
+  color: #f1f5f9;
+}
+
+.board-activity-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.board-activity-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.board-activity-group .activity-item {
+  margin-left: 8px;
+}
+
+.board-activity-ticket {
+  padding: 0 4px;
+}
+
+.ticket-link {
+  color: #60a5fa;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ticket-link:hover {
+  text-decoration: underline;
+}
+
+.empty-state {
+  padding: 48px;
+  text-align: center;
+  color: #64748b;
+  background-color: #1e293b;
+  border-radius: 8px;
+}
+
 .loading {
   display: flex;
   justify-content: center;

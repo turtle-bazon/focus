@@ -25,6 +25,11 @@
   (rf/dispatch [:set-view :board])
   (rf/dispatch [:fetch-current-board (js/parseInt id)]))
 
+(secretary/defroute "/boards/:id/activity" [id]
+  (rf/dispatch [:set-view :board-activity])
+  (rf/dispatch [:fetch-current-board (js/parseInt id)])
+  (rf/dispatch [:fetch-board-activity (js/parseInt id)]))
+
 (secretary/defroute "/tickets/:id" [id]
   (rf/dispatch [:set-active-tab :comments])
   (rf/dispatch [:fetch-ticket-detail (js/parseInt id)])

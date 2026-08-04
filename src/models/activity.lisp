@@ -53,6 +53,30 @@
     (when result
       (getf (car result) :count))))
 
+(defun list-board-activity (board-id &key (limit 20) (offset 0))
+  "List activity for all tickets on a board with pagination. Returns rows
+   including the ticket title and status for context."
+  (pg-query-params
+   "SELECT a.id, a.ticket_id, a.user_id, a.action, a.details, a.created_at,
+           t.title AS ticket_title, t.status AS ticket_status
+    FROM activity a
+    JOIN tickets t ON t.id = a.ticket_id
+    WHERE t.board_id = $1
+    ORDER BY a.created_at DESC
+    LIMIT $2 OFFSET $3"
+   (list board-id limit offset)))
+
+(defun count-board-activity (board-id)
+  "Count total activity entries for all tickets on a board."
+  (let ((result (pg-query-params
+                 "SELECT COUNT(a.id) AS count
+                  FROM activity a
+                  JOIN tickets t ON t.id = a.ticket_id
+                  WHERE t.board_id = $1"
+                 (list board-id))))
+    (when result
+      (getf (car result) :count))))
+
 (defun get-activity-by-id (id)
   "Get activity by ID. Returns plist or nil."
   (let ((results (db-query

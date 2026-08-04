@@ -150,9 +150,50 @@
    (:create-group-modal db)))
 
 (rf/reg-sub
- :ticket-observers
+  :ticket-observers
+  (fn [db _]
+    (:ticket-observers db)))
+
+(rf/reg-sub
+ :boards
  (fn [db _]
-   (:ticket-observers db)))
+   (:boards db)))
+
+(rf/reg-sub
+ :current-board
+ (fn [db _]
+   (:current-board db)))
+
+(rf/reg-sub
+ :current-board-id
+ (fn [db _]
+   (:current-board-id db)))
+
+(rf/reg-sub
+ :board-statuses
+ (fn [db _]
+   (:statuses (:current-board db))))
+
+(rf/reg-sub
+ :board-transitions
+ (fn [db _]
+   (:transitions (:current-board db))))
+
+(rf/reg-sub
+ :can-manage-boards
+ (fn [db _]
+   (let [role (get-in db [:auth :user :role])]
+     (or (= "admin" role) (= "group_manager" role)))))
+
+(rf/reg-sub
+ :transition-allowed
+ (fn [db _]
+   (let [transitions (vec (:transitions (:current-board db)))]
+     (fn [from-code to-code]
+       (or (= from-code to-code)
+           (boolean (some #(and (= (:from_code %) from-code)
+                                (= (:to_code %) to-code))
+                          transitions)))))))
 
 (rf/reg-sub
  :is-admin

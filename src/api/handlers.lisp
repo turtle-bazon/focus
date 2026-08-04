@@ -59,6 +59,13 @@
   (let ((normalized (intern (substitute #\- #\_ (string key)) :keyword)))
     (cdr (assoc normalized alist :test #'equal))))
 
+(defun as-int (value)
+  "Coerce a JSON value to an integer. cl-json decodes numbers as integers,
+   but other callers may pass strings."
+  (cond ((integerp value) value)
+        ((stringp value) (parse-integer value))
+        (t nil)))
+
 (defun parse-json-body (env)
   "Parse JSON request body from Clack env."
   (let ((body (getf env :raw-body)))
@@ -115,6 +122,8 @@
          (priority (get-query-param query-params "priority"))
          (assignee-id (when (get-query-param query-params "assignee_id")
                         (parse-integer (get-query-param query-params "assignee_id"))))
+         (board-id (when (get-query-param query-params "board_id")
+                     (parse-integer (get-query-param query-params "board_id"))))
          (page (when (get-query-param query-params "page")
                  (parse-integer (get-query-param query-params "page"))))
          (limit (when (get-query-param query-params "limit")
@@ -122,6 +131,7 @@
          (tickets (list-tickets :status status
                                 :priority priority
                                 :assignee-id assignee-id
+                                :board-id board-id
                                 :page page
                                 :limit limit)))
     (json-response `(:tickets ,tickets))))
@@ -145,7 +155,8 @@
          (priority (json-assoc :priority body))
          (assignee-id (json-assoc :assignee_id body))
          (assignee-type (json-assoc :assignee_type body))
-         (color (json-assoc :color body)))
+         (color (json-assoc :color body))
+         (board-id (json-assoc :board_id body)))
     (unless title
       (return-from handle-create-ticket (error-response "Title is required")))
     (bind ((id (create-ticket title
@@ -157,9 +168,19 @@
                                                 (parse-integer assignee-id)
                                                 assignee-id))
                               :assignee-type assignee-type
-                              :color color)))
+                              :color color
+                              :board-id (when board-id
+                                         (if (stringp board-id)
+                                             (parse-integer board-id)
+                                             board-id)))))
       (let ((ticket (get-ticket-by-id id))
             (user-id (get-user-id-from-env env)))
+        (when (and ticket assignee-id)
+          (ensure-board-member (getf ticket :board-id)
+                               (or assignee-type "user")
+                               (if (stringp assignee-id)
+                                   (parse-integer assignee-id)
+                                   assignee-id)))
         (log-activity id user-id "created"
                        :details `((:title . ,title)))
         (ws-broadcast-ticket-created ticket)
@@ -178,21 +199,57 @@
                (assignee-type (json-assoc :assignee_type body))
                (color (json-assoc :color body))
                (position (json-assoc :position body))
+               (board-id (json-assoc :board_id body))
                (old-ticket (get-ticket-by-id id))
                (user-id (get-user-id-from-env env))
-               (ticket (if position
-                          (reposition-ticket id
-                                            (or status "open")
-                                            (or priority "medium")
-                                            position)
-                          (update-ticket id
-                                        :title title
-                                        :description description
-                                        :status status
-                                        :priority priority
-                                        :assignee-id assignee-id
-                                        :assignee-type assignee-type
-                                        :color color))))
+               (new-board (if board-id
+                              (if (stringp board-id)
+                                  (parse-integer board-id)
+                                  board-id)
+                              (getf old-ticket :board-id))))
+          (unless old-ticket
+            (return-from handle-update-ticket (error-response "Ticket not found" 404)))
+          ;; Enforce lifecycle transitions.
+          ;; When the destination board is unchanged, every status move must be allowed.
+          (when (and status
+                     (not (equal status (getf old-ticket :status))))
+            (if (equal new-board (getf old-ticket :board-id))
+                (unless (transition-allowed-p new-board (getf old-ticket :status) status)
+                  (return-from handle-update-ticket
+                    (error-response "Status transition is not allowed by this board's workflow")))
+                (let ((codes (mapcar (lambda (s) (getf s :code)) (list-board-statuses new-board))))
+                  (unless (member status codes :test #'string=)
+                    (setf status (car codes))))))
+          (bind ((ticket (if position
+                              (reposition-ticket id
+                                                 (or status (getf old-ticket :status))
+                                                 (or priority "medium")
+                                                 position)
+                              (update-ticket id
+                                            :title title
+                                            :description description
+                                            :status status
+                                            :priority priority
+                                            :assignee-id assignee-id
+                                            :assignee-type assignee-type
+                                            :color color
+                                            :board-id (when board-id new-board)))))
+          (when (and ticket (not (equal new-board (getf old-ticket :board-id))))
+            ;; Moving to another board: re-ensure assignee and observers belong to it.
+            (when (getf ticket :assignee-id)
+              (ensure-board-member new-board
+                                   (or (getf ticket :assignee-type) "user")
+                                   (getf ticket :assignee-id)))
+            (iter (for obs in (list-ticket-observers id))
+              (ensure-board-member new-board
+                                   (getf obs :observer_type)
+                                   (getf obs :observer_id))))
+          (when (and ticket assignee-id)
+            ;; New/changed assignee automatically joins the board.
+            (let ((parsed (if (stringp assignee-id) (parse-integer assignee-id) assignee-id)))
+              (ensure-board-member (getf ticket :board-id)
+                                   (or assignee-type "user")
+                                   parsed)))
           (if ticket
               (progn
                 (let ((status-changed (and old-ticket status (not (equal (getf old-ticket :status) status))))
@@ -215,7 +272,7 @@
                                   :details `((:from . ,(getf old-ticket :title)) (:to . ,title)))))
                 (ws-broadcast-ticket-update ticket)
                 (json-response ticket))
-              (error-response "Ticket not found" 404)))
+              (error-response "Ticket not found" 404))))
         (error-response "Invalid ticket ID"))))
 
 (defun handle-delete-ticket (env)
@@ -491,6 +548,13 @@
             (return-from handle-add-ticket-observer (error-response "Observer ID is required")))
           (add-ticket-observer ticket-id observer-type
                               (if (stringp observer-id) (parse-integer observer-id) observer-id))
+          (let ((ticket (and ticket-id (get-ticket-by-id ticket-id))))
+            (when ticket
+              (ensure-board-member (getf ticket :board-id)
+                                   observer-type
+                                   (if (stringp observer-id)
+                                       (parse-integer observer-id)
+                                       observer-id))))
           (json-response `(:message "Observer added")))
         (error-response "Invalid ticket ID"))))
 
@@ -499,12 +563,241 @@
   (let* ((path (getf env :path-info))
          (ticket-id (extract-id-from-path path "^/api/tickets/(\\d+)/observers/.+$"))
          (parts (ppcre:register-groups-bind (tid observer-type observer-id)
-                    ("^/api/tickets/(\\d+)/observers/(user|group)/(\\d+)$" path)
-                  (list (when tid (parse-integer tid))
-                        observer-type
-                        (when observer-id (parse-integer observer-id))))))
+                     ("^/api/tickets/(\\d+)/observers/(user|group)/(\\d+)$" path)
+                   (list (when tid (parse-integer tid))
+                         observer-type
+                         (when observer-id (parse-integer observer-id))))))
     (if (and ticket-id (first parts) (second parts) (third parts))
         (progn
           (remove-ticket-observer ticket-id (second parts) (third parts))
           (json-response `(:message "Observer removed")))
         (error-response "Invalid ticket ID, observer type, or observer ID"))))
+
+;;; Board handlers
+
+(defun board-visibility-response (env)
+  "Return 403 response if the user may not view the board."
+  (let* ((user-id (get-user-id-from-env env))
+         (board-id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)")))
+    (when board-id
+      (let* ((visible (list-visible-boards user-id))
+             (found (find board-id visible :key (lambda (b) (getf b :id)))))
+        (unless (or found (manager-p user-id))
+          (error-response "Board not found or not accessible" 403))))))
+
+(defun board-manage-error (board-id user-id)
+  "Return 403 response unless the user may manage the board."
+  (unless (can-manage-board board-id user-id)
+    (error-response "You don't have permission to modify this board" 403)))
+
+(defun handle-list-boards (env)
+  "GET /api/boards"
+  (let ((user-id (get-user-id-from-env env)))
+    (json-response `(:boards ,(list-visible-boards user-id)))))
+
+(defun handle-create-board (env)
+  "POST /api/boards"
+  (bind ((body (parse-json-body env))
+         (name (json-assoc :name body))
+         (type (json-assoc :type body))
+         (user-id (get-user-id-from-env env)))
+    (unless name
+      (return-from handle-create-board (error-response "Name is required")))
+    (let ((type (or type "personal")))
+      (when (and (equal type "common") (not (manager-p user-id)))
+        (return-from handle-create-board
+          (error-response "Only admins and group managers can create common boards" 403)))
+      (json-response `(:id ,(create-board name type user-id)) 201))))
+
+(defun handle-get-board (env)
+  "GET /api/boards/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)$")))
+    (if id
+        (let ((board (get-board-by-id id)))
+          (if board
+              (progn
+                (let ((forbidden (board-visibility-response env)))
+                  (when forbidden (return-from handle-get-board forbidden)))
+                (json-response (list :id (getf board :id)
+                                     :name (getf board :name)
+                                     :type (getf board :type)
+                                     :is_default (getf board :is-default)
+                                     :owner_id (getf board :owner-id)
+                                     :statuses (list-board-statuses id)
+                                     :transitions (list-board-transitions id))))
+              (error-response "Board not found" 404)))
+        (error-response "Invalid board ID"))))
+
+(defun handle-update-board (env)
+  "PUT /api/boards/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)$")))
+    (if id
+        (let ((user-id (get-user-id-from-env env)))
+          (let ((forbidden (board-manage-error id user-id)))
+            (when forbidden (return-from handle-update-board forbidden)))
+          (bind ((body (parse-json-body env))
+                 (name (json-assoc :name body)))
+            (json-response (update-board id :name name))))
+        (error-response "Invalid board ID"))))
+
+(defun handle-delete-board (env)
+  "DELETE /api/boards/:id"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)$")))
+    (if id
+        (let ((user-id (get-user-id-from-env env)))
+          (let ((forbidden (board-manage-error id user-id)))
+            (when forbidden (return-from handle-delete-board forbidden)))
+          (delete-board id)
+          (json-response `(:message "Board deleted")))
+        (error-response "Invalid board ID"))))
+
+(defun handle-list-board-members (env)
+  "GET /api/boards/:id/members"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)/members$")))
+    (if id
+        (progn
+          (let ((forbidden (board-visibility-response env)))
+            (when forbidden (return-from handle-list-board-members forbidden)))
+          (json-response `(:members ,(list-board-members id))))
+        (error-response "Invalid board ID"))))
+
+(defun handle-add-board-member (env)
+  "POST /api/boards/:id/members"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)/members$")))
+    (if id
+        (let ((user-id (get-user-id-from-env env)))
+          (let ((forbidden (board-manage-error id user-id)))
+            (when forbidden (return-from handle-add-board-member forbidden)))
+          (bind ((body (parse-json-body env))
+                 (member-type (json-assoc :member_type body))
+                 (member-id (json-assoc :member_id body)))
+            (unless (and member-type member-id)
+              (return-from handle-add-board-member
+                (error-response "member_type and member_id are required")))
+            (ensure-board-member id
+                                 member-type
+                                 (if (stringp member-id) (parse-integer member-id) member-id))
+            (json-response `(:message "Member added"))))
+        (error-response "Invalid board ID"))))
+
+(defun handle-remove-board-member (env)
+  "DELETE /api/boards/:id/members/:type/:member_id"
+  (let* ((path (getf env :path-info))
+         (board-id (extract-id-from-path path "^/api/boards/(\\d+)/members/.+$"))
+         (parts (ppcre:register-groups-bind (bid member-type member-id)
+                     ("^/api/boards/(\\d+)/members/(user|group)/(\\d+)$" path)
+                   (list (when bid (parse-integer bid)) member-type
+                         (when member-id (parse-integer member-id))))))
+    (if (and board-id (second parts) (third parts))
+        (let ((user-id (get-user-id-from-env env)))
+          (let ((forbidden (board-manage-error (first parts) user-id)))
+            (when forbidden (return-from handle-remove-board-member forbidden)))
+          (remove-board-member (first parts) (second parts) (third parts))
+          (json-response `(:message "Member removed")))
+        (error-response "Invalid board, member type, or member ID"))))
+
+(defun handle-list-board-statuses (env)
+  "GET /api/boards/:id/statuses"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)/statuses$")))
+    (if id
+        (progn
+          (let ((forbidden (board-visibility-response env)))
+            (when forbidden (return-from handle-list-board-statuses forbidden)))
+          (json-response `(:statuses ,(list-board-statuses id))))
+        (error-response "Invalid board ID"))))
+
+(defun handle-create-board-status (env)
+  "POST /api/boards/:id/statuses"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)/statuses$")))
+    (if id
+        (let ((user-id (get-user-id-from-env env)))
+          (let ((forbidden (board-manage-error id user-id)))
+            (when forbidden (return-from handle-create-board-status forbidden)))
+          (bind ((body (parse-json-body env))
+                 (code (json-assoc :code body))
+                 (name (json-assoc :name body))
+                 (color (json-assoc :color body))
+                 (position (json-assoc :position body)))
+            (unless (and code name)
+              (return-from handle-create-board-status
+                (error-response "code and name are required")))
+            (json-response `(:id ,(create-board-status id code name
+                                                       :color color
+                                                       :position (as-int position)))
+                           201)))
+        (error-response "Invalid board ID"))))
+
+(defun handle-update-board-status (env)
+  "PUT /api/boards/:id/statuses/:status_id"
+  (let* ((path (getf env :path-info))
+         (board-id (extract-id-from-path path "^/api/boards/(\\d+)/statuses/\\d+$"))
+         (status-id (extract-id-from-path path "^/api/boards/\\d+/statuses/(\\d+)$")))
+    (if (and board-id status-id)
+        (let ((user-id (get-user-id-from-env env)))
+          (let ((forbidden (board-manage-error board-id user-id)))
+            (when forbidden (return-from handle-update-board-status forbidden)))
+          (bind ((body (parse-json-body env))
+                 (name (json-assoc :name body))
+                 (color (json-assoc :color body))
+                 (position (json-assoc :position body)))
+            (update-board-status board-id status-id
+                                 :name name
+                                 :color color
+                                 :position (as-int position))
+            (json-response `(:message "Status updated"))))
+        (error-response "Invalid board or status ID"))))
+
+(defun handle-delete-board-status (env)
+  "DELETE /api/boards/:id/statuses/:status_id"
+  (let* ((path (getf env :path-info))
+         (board-id (extract-id-from-path path "^/api/boards/(\\d+)/statuses/\\d+$"))
+         (status-id (extract-id-from-path path "^/api/boards/\\d+/statuses/(\\d+)$")))
+    (if (and board-id status-id)
+        (let ((user-id (get-user-id-from-env env)))
+          (let ((forbidden (board-manage-error board-id user-id)))
+            (when forbidden (return-from handle-delete-board-status forbidden)))
+          (delete-board-status board-id status-id)
+          (json-response `(:message "Status deleted")))
+        (error-response "Invalid board or status ID"))))
+
+(defun handle-list-board-transitions (env)
+  "GET /api/boards/:id/transitions"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)/transitions$")))
+    (if id
+        (progn
+          (let ((forbidden (board-visibility-response env)))
+            (when forbidden (return-from handle-list-board-transitions forbidden)))
+          (json-response `(:transitions ,(list-board-transitions id))))
+        (error-response "Invalid board ID"))))
+
+(defun handle-add-board-transition (env)
+  "POST /api/boards/:id/transitions"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)/transitions$")))
+    (if id
+        (let ((user-id (get-user-id-from-env env)))
+          (let ((forbidden (board-manage-error id user-id)))
+            (when forbidden (return-from handle-add-board-transition forbidden)))
+          (bind ((body (parse-json-body env))
+                 (from-code (json-assoc :from_code body))
+                 (to-code (json-assoc :to_code body)))
+            (unless (and from-code to-code)
+              (return-from handle-add-board-transition
+                (error-response "from_code and to_code are required")))
+            (add-board-transition id from-code to-code)
+            (json-response `(:message "Transition added"))))
+        (error-response "Invalid board ID"))))
+
+(defun handle-remove-board-transition (env)
+  "DELETE /api/boards/:id/transitions/:from/:to"
+  (let* ((path (getf env :path-info))
+         (board-id (extract-id-from-path path "^/api/boards/(\\d+)/transitions/.+$"))
+         (parts (ppcre:register-groups-bind (bid from-code to-code)
+                     ("^/api/boards/(\\d+)/transitions/([^/]+)/([^/]+)$" path)
+                   (list (when bid (parse-integer bid)) from-code to-code))))
+    (if (and board-id (second parts) (third parts))
+        (let ((user-id (get-user-id-from-env env)))
+          (let ((forbidden (board-manage-error (first parts) user-id)))
+            (when forbidden (return-from handle-remove-board-transition forbidden)))
+          (remove-board-transition (first parts) (second parts) (third parts))
+          (json-response `(:message "Transition removed")))
+        (error-response "Invalid board, from_code, or to_code"))))

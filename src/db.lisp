@@ -53,11 +53,12 @@
 ;;; Parameterized queries
 
 (defun alist-to-plist (alist)
-  "Convert an alist to a plist."
+  "Convert an alist to a plist. SQL NULL values (postmodern returns the
+   keyword :null) are normalized to NIL."
   (when alist
     (iter (for pair in alist)
       (collecting (intern (string-upcase (car pair)) :keyword))
-      (collecting (cdr pair)))))
+      (collecting (if (eq (cdr pair) :null) nil (cdr pair))))))
 
 (defun pg-query-params (sql params)
   "Execute a parameterized query on PostgreSQL.

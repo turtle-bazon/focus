@@ -36,9 +36,10 @@
                                  (:file "activity")
                                  (:file "attachment")
                                  (:file "webhook")
-                                 (:file "session")
-                                 (:file "group")
-                                 (:file "ticket-observer")))
+                                  (:file "session")
+                                  (:file "group")
+                                  (:file "ticket-observer")
+                                  (:file "board")))
                   (:module "api"
                    :components ((:file "routes")
                                 (:file "auth")

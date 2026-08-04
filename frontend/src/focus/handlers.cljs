@@ -15,6 +15,9 @@
     :groups []
     :group-members {}
     :ticket-observers {}
+    :boards []
+    :current-board-id nil
+    :current-board nil
     :current-ticket nil
     :comments []
     :comments-total 0
@@ -97,6 +100,7 @@
 (rf/reg-event-db
  :set-error
  (fn [db [_ error]]
+   (js/console.log "focus error:", error)
    (assoc db :error error :loading false)))
 
 (rf/reg-event-db
@@ -107,11 +111,13 @@
 (rf/reg-event-fx
  :fetch-tickets
  (fn [{:keys [db]} [_ params]]
-   (api/fetch-tickets params
-    (fn [response]
-      (rf/dispatch [:set-tickets (:tickets response)]))
-    (fn [error]
-      (rf/dispatch [:set-error (str "Failed to fetch tickets: " error)])))
+   (let [params (cond-> (or params {})
+                 (:current-board-id db) (assoc :board_id (:current-board-id db)))]
+     (api/fetch-tickets params
+      (fn [response]
+        (rf/dispatch [:set-tickets (:tickets response)]))
+      (fn [error]
+        (rf/dispatch [:set-error (str "Failed to fetch tickets: " error)]))))
    {:db db}))
 
 (rf/reg-event-db
@@ -122,7 +128,7 @@
 (rf/reg-event-fx
  :create-ticket
  (fn [{:keys [db]} [_ data]]
-(api/create-ticket data
+ (api/create-ticket (assoc data :board_id (:current-board-id db))
      (fn [response]
        (rf/dispatch [:add-ticket {:id (:id response)
                                  :title (:title data)
@@ -130,6 +136,7 @@
                                  :priority (:priority data)
                                  :assignee_id (:assignee_id data)
                                  :assignee_type (:assignee_type data)
+                                 :board_id (:current-board-id db)
                                  :status "open"}]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create ticket: " error)])))
@@ -650,3 +657,141 @@
  :close-confirm-modal
  (fn [db _]
    (assoc db :confirm-modal nil)))
+
+;;; Board events
+
+(rf/reg-event-fx
+ :fetch-boards
+ (fn [{:keys [db]} _]
+   (api/fetch-boards
+    (fn [response]
+      (rf/dispatch [:set-boards (:boards response)])
+      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to fetch boards: " error)])))
+   {:db db}))
+
+(rf/reg-event-db
+ :set-boards
+ (fn [db [_ boards]]
+   (assoc db :boards boards)))
+
+(rf/reg-event-fx
+ :select-board
+ (fn [{:keys [db]} [_ board]]
+   (let [board (or board (first (:boards db)))]
+     (when board
+       (js/navigateTo (str "/boards/" (:id board))))
+     {:db (assoc db :current-board-id (:id board)
+                    :current-board (assoc (:current-board db) :id (:id board)))})))
+
+(rf/reg-event-fx
+ :fetch-current-board
+ (fn [{:keys [db]} [_ board-id]]
+   (let [id (or board-id (:current-board-id db)
+                (:id (first (:boards db))))]
+     (if id
+       (api/fetch-board id
+        (fn [response]
+          (rf/dispatch [:set-current-board response])
+          (rf/dispatch [:fetch-tickets {}]))
+        (fn [error]
+          (rf/dispatch [:set-error (str "Failed to fetch board: " error)])))
+       (rf/dispatch [:fetch-tickets {}]))
+     {:db (assoc db :current-board-id id)})))
+
+(rf/reg-event-db
+ :set-current-board
+ (fn [db [_ response]]
+   (assoc db
+          :current-board-id (:id response)
+          :current-board (select-keys response [:id :name :type :is_default :owner_id
+                                                 :statuses :transitions]))))
+
+(rf/reg-event-fx
+ :create-board
+ (fn [{:keys [db]} [_ name type]]
+   (api/create-board {:name name :type (or type "personal")}
+    (fn [_]
+      (rf/dispatch [:fetch-boards]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to create board: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :delete-board
+ (fn [{:keys [db]} [_ id]]
+   (api/delete (str "/boards/" id)
+    (fn []
+      (if (= (:current-board-id db) id)
+        (rf/dispatch [:select-board nil])
+        (rf/dispatch [:fetch-boards])))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to delete board: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :add-board-status
+ (fn [{:keys [db]} [_ data]]
+   (api/create-board-status (:current-board-id db) data
+    (fn []
+      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to add status: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :update-board-status
+ (fn [{:keys [db]} [_ status-id data]]
+   (api/update-board-status (:current-board-id db) status-id data
+    (fn []
+      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to update status: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :remove-board-status
+ (fn [{:keys [db]} [_ status-id]]
+   (api/delete-board-status (:current-board-id db) status-id
+    (fn []
+      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to remove status: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :toggle-board-transition
+ (fn [{:keys [db]} [h413 from-code to-code]]
+   (let [lost (first (filter (fn [tr]
+                               (and (= (:from_code tr) from-code)
+                                    (= (:to_code tr) to-code)))
+                             (:transitions (:current-board db))))]
+     (if lost
+       (api/remove-board-transition (:current-board-id db) from-code to-code
+        (fn [] (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+        (fn [error] (rf/dispatch [:set-error (str "Failed to remove transition: " error)])))
+       (api/add-board-transition (:current-board-id db) from-code to-code
+        (fn [] (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+        (fn [error] (rf/dispatch [:set-error (str "Failed to add transition: " error)]))))
+     {:db db})))
+
+(rf/reg-event-fx
+ :add-board-member
+ (fn [{:keys [db]} [_ member-type member-id]]
+   (api/add-board-member (:current-board-id db) member-type member-id
+    (fn []
+      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to add member: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :remove-board-member
+ (fn [{:keys [db]} [_ member-type member-id]]
+   (api/remove-board-member (:current-board-id db) member-type member-id
+    (fn []
+      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to remove member: " error)])))
+   {:db db}))

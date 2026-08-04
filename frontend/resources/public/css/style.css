@@ -79,6 +79,7 @@ body {
 
 .board-view {
   display: flex;
+  justify-content: center;
   gap: 16px;
   padding: 24px;
   overflow-x: auto;
@@ -1895,4 +1896,212 @@ body {
 
 .btn-confirm-danger:active {
   transform: scale(0.97);
+}
+
+/* ===== Board dropdown ===== */
+.board-dropdown {
+  position: relative;
+}
+.board-dropdown-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+.board-dropdown-button:hover {
+  border-color: #3b82f6;
+}
+.board-dropdown-chevron {
+  color: #64748b;
+  font-size: 11px;
+}
+.board-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 220px;
+  background-color: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 6px;
+  z-index: 100;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.board-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+}
+.board-dropdown-item:hover {
+  background-color: #334155;
+}
+.board-dropdown-item.active {
+  background-color: #2563eb55;
+  color: #fff;
+}
+.board-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.board-dropdown-label {
+  flex: 1;
+}
+.board-dropdown-sep {
+  height: 1px;
+  background-color: #334155;
+  margin: 6px 4px;
+}
+
+/* ===== Board columns blocked on disallowed transitions ===== */
+.board-column-disabled {
+  opacity: 0.45;
+  border: 1px dashed #475569;
+}
+.board-column-disabled .column-title {
+  text-decoration: line-through;
+}
+
+/* ===== Lifecycle editor ===== */
+.lifecycle-modal {
+  max-width: 760px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.manage-statuses,
+.manage-transitions {
+  margin-bottom: 24px;
+}
+.manage-statuses h4,
+.manage-transitions h4 {
+  margin-bottom: 12px;
+  font-size: 15px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-code {
+  font-family: ui-monospace, monospace;
+  color: #94a3b8;
+  min-width: 90px;
+  font-size: 13px;
+}
+.status-name-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background-color: #0f172a;
+  color: #e2e8f0;
+  font-size: 14px;
+}
+.status-color-input {
+  width: 42px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.status-delete-button {
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 16px;
+}
+.status-delete-button:hover {
+  color: #f87171;
+}
+.add-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.add-status-row input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background-color: #0f172a;
+  color: #e2e8f0;
+  font-size: 14px;
+}
+.add-status-row input.status-color-input {
+  flex: 0 0 42px;
+  width: 42px;
+}
+.primary-button {
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+.primary-button:hover {
+  background-color: #2563eb;
+}
+.primary-button:disabled {
+  background-color: #334155;
+  cursor: not-allowed;
+}
+.transition-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.transition-matrix th,
+.transition-matrix td {
+  border: 1px solid #334155;
+  padding: 5px;
+  text-align: center;
+  color: #94a3b8;
+}
+.transition-matrix th {
+  background-color: #0f172a;
+  color: #e2e8f0;
+  font-weight: 600;
+}
+.transition-matrix td:first-child {
+  font-family: ui-monospace, monospace;
+  color: #e2e8f0;
+}
+.transition-matrix input[type="checkbox"] {
+  cursor: pointer;
+}
+.transition-matrix input[type="checkbox"]:disabled {
+  cursor: not-allowed;
 }

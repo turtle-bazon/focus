@@ -21,6 +21,10 @@
 (secretary/defroute "/" []
   (rf/dispatch [:set-view :board]))
 
+(secretary/defroute "/boards/:id" [id]
+  (rf/dispatch [:set-view :board])
+  (rf/dispatch [:fetch-current-board (js/parseInt id)]))
+
 (secretary/defroute "/tickets/:id" [id]
   (rf/dispatch [:set-active-tab :comments])
   (rf/dispatch [:fetch-ticket-detail (js/parseInt id)])
@@ -52,7 +56,7 @@
   (mount-root))
 
 (defn init-board []
-  (rf/dispatch [:fetch-tickets {}])
+  (rf/dispatch [:fetch-boards])
   (rf/dispatch [:fetch-users])
   (rf/dispatch [:fetch-labels])
   (rf/dispatch [:fetch-groups])

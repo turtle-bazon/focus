@@ -472,8 +472,21 @@
 (defn get-status-color [status]
   (or (some #(when (= (:id %) status) (:color %)) statuses) "#6b7280"))
 
+(defn board-status-color [status]
+  (let [board-statuses @(rf/subscribe [:board-statuses])
+        s (first (filter #(= (:code %) status) board-statuses))]
+    (or (:color s) (get-status-color status))))
+
 (defn get-priority-color [priority]
   (get priority-colors priority "#6b7280"))
+
+(def drag-state (r/atom nil))
+
+(def drop-marker (r/atom nil))
+
+(defn transition-allowed? [transitions from to]
+  (or (= from to)
+      (boolean (some #(and (= (:from_code %) from) (= (:to_code %) to)) transitions))))
 
 ;;; Landing page
 
@@ -512,11 +525,11 @@
         "high" (t :priority/high)
         priority)]]))
 
-(defn draggable-card [ticket on-card-over card-idx drag-idx set-drag-idx!]
+(defn draggable-card [ticket on-card-over card-idx drag-idx set-drag-idx! allowed?]
   (let [card-ref (r/atom nil)
         dragging (r/atom false)
         just-dragged (r/atom false)]
-    (fn [ticket on-card-over card-idx drag-idx set-drag-idx!]
+    (fn [ticket on-card-over card-idx drag-idx set-drag-idx! allowed?]
       (let [show-top (and drag-idx (= drag-idx card-idx) (not @dragging))
             show-bottom (and drag-idx (= drag-idx (inc card-idx)) (not @dragging))]
         [:div.ticket-card
@@ -528,6 +541,8 @@
           :on-drag-start (fn [e]
                            (.stopPropagation e)
                            (reset! dragging true)
+                           (reset! drag-state {:ticket-id (:id ticket)
+                                               :status (:status ticket)})
                            (.setData (.-dataTransfer e) "text/plain" (str (:id ticket)))
                            (set! (.. e -dataTransfer -effectAllowed) "move")
                            (when-let [el @card-ref]
@@ -547,19 +562,23 @@
           :on-drag-end (fn [_]
                          (reset! dragging false)
                          (reset! just-dragged true)
+                         (reset! drag-state nil)
                          (js/setTimeout #(reset! just-dragged false) 200)
                          (set-drag-idx! nil))
           :on-click (fn [e]
                       (when-not @just-dragged
                         (js/navigateTo (str "/tickets/" (:id ticket)))))
           :on-drag-over (fn [e]
-                          (.preventDefault e)
-                          (.stopPropagation e)
-                          (set! (.. e -dataTransfer -dropEffect) "move")
-                          (let [rect (.getBoundingClientRect (.-currentTarget e))
-                                y (- (.-clientY e) (.-top rect))
-                                h (.-height rect)]
-                            (on-card-over (if (< y (/ h 2)) card-idx (inc card-idx)))))}
+                          (if allowed?
+                            (do
+                              (.preventDefault e)
+                              (.stopPropagation e)
+                              (set! (.. e -dataTransfer -dropEffect) "move")
+                              (let [rect (.getBoundingClientRect (.-currentTarget e))
+                                    y (- (.-clientY e) (.-top rect))
+                                    h (.-height rect)]
+                                (on-card-over (if (< y (/ h 2)) card-idx (inc card-idx)))))
+                            (set! (.. e -dataTransfer -dropEffect) "none")))}
          [:div.ticket-card-header
           [:span.ticket-id (str "#" (:id ticket))]
           [:span.ticket-priority
@@ -583,54 +602,63 @@
                      user (get user-map (js/parseInt (:assignee_id ticket)))]
                  (or (:username user) (str (t :ticket/user-prefix) (:assignee_id ticket)))))]])]))))
 
-(defn priority-group [status-id priority tickets]
-  (let [drag-idx (r/atom nil)
-        set-drag-idx! (fn [idx] (reset! drag-idx idx))
+(defn priority-group [status-id priority tickets allowed?]
+  (let [my-key [status-id priority]
+        set-drag-idx! (fn [idx]
+                        (if idx
+                          (reset! drop-marker {:group my-key :idx idx})
+                          (reset! drop-marker nil)))
         group-ref (r/atom nil)]
-    (fn [status-id priority tickets]
-      (let [show-end (and @drag-idx (= @drag-idx (count tickets)))]
+    (fn [status-id priority tickets allowed?]
+      (let [my-marker? (= (:group @drop-marker) my-key)
+            drag-idx (if my-marker? (:idx @drop-marker) nil)
+            show-end (and my-marker? (= drag-idx (count tickets)))]
         [:div.priority-group
          {:ref #(reset! group-ref %)
           :on-drag-over (fn [e]
-                          (.preventDefault e)
-                          (set! (.. e -dataTransfer -dropEffect) "move")
-                          (let [el @group-ref
-                                children (array-seq (.. el -children))
-                                cards (rest children)
-                                y (- (.-clientY e) (.. el -getBoundingClientRect -top))]
-                            (loop [i 0 cs cards]
-                              (if (seq cs)
-                                (let [card-el (first cs)
-                                      rect (.getBoundingClientRect card-el)
-                                      card-top (- (.. rect -top) (.. el -getBoundingClientRect -top))
-                                      card-h (.-height rect)]
-                                  (if (< y (+ card-top (/ card-h 2)))
-                                    (reset! drag-idx i)
-                                    (recur (inc i) (rest cs))))
-                                (reset! drag-idx (count tickets))))))
+                          (if-not allowed?
+                            (set! (.. e -dataTransfer -dropEffect) "none")
+                            (do
+                              (.preventDefault e)
+                              (set! (.. e -dataTransfer -dropEffect) "move")
+                              (let [el @group-ref
+                                    children (array-seq (.. el -children))
+                                    cards (rest children)
+                                    y (- (.-clientY e) (.. el -getBoundingClientRect -top))]
+                                (loop [i 0 cs cards]
+                                  (if (seq cs)
+                                    (let [card-el (first cs)
+                                          rect (.getBoundingClientRect card-el)
+                                          card-top (- (.. rect -top) (.. el -getBoundingClientRect -top))
+                                          card-h (.-height rect)]
+                                      (if (< y (+ card-top (/ card-h 2)))
+                                        (reset! drop-marker {:group my-key :idx i})
+                                        (recur (inc i) (rest cs))))
+                                    (reset! drop-marker {:group my-key :idx (count tickets)})))))))
           :on-drag-leave (fn [e]
                            (let [related (.. e -relatedTarget)]
                              (when-not (and related (.contains @group-ref related))
-                               (reset! drag-idx nil))))
+                               (reset! drop-marker nil))))
           :on-drop (fn [e]
                      (.preventDefault e)
                      (.stopPropagation e)
                      (let [ticket-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
-                           raw-idx (or @drag-idx (count tickets))
+                           raw-idx (or (when my-marker? (:idx @drop-marker)) (count tickets))
                            dragged-pos (first (keep-indexed
                                                (fn [i t] (when (= (:id t) ticket-id) i))
                                                tickets))
                            target-idx (if (and dragged-pos (< dragged-pos raw-idx))
                                         (dec raw-idx)
                                         raw-idx)]
-                       (reset! drag-idx nil)
-                       (rf/dispatch [:reorder-ticket ticket-id status-id priority target-idx])))}
+                       (reset! drop-marker nil)
+                       (when allowed?
+                         (rf/dispatch [:reorder-ticket ticket-id status-id priority target-idx]))))}
          [priority-group-header priority]
          (doall
           (map-indexed
            (fn [idx ticket]
              ^{:key (:id ticket)}
-             [draggable-card ticket set-drag-idx! idx @drag-idx set-drag-idx!])
+             [draggable-card ticket set-drag-idx! idx drag-idx set-drag-idx! allowed?])
            tickets))
          (when show-end
            [:div.drop-line-active])]))))
@@ -638,36 +666,208 @@
 (def all-priorities ["high" "medium" "low"])
 
 (defn board-column [status]
-  (let [tickets-by-status @(rf/subscribe [:tickets-by-status])
+  (let [transitions @(rf/subscribe [:board-transitions])
+        tickets-by-status @(rf/subscribe [:tickets-by-status])
         tickets (get tickets-by-status (:id status) [])
-        by-priority (into {} (map (fn [[p t]] [p t]) (group-by :priority tickets)))]
+        by-priority (into {} (map (fn [[p t]] [p t]) (group-by :priority tickets)))
+        dragged @drag-state
+        allowed? (or (nil? dragged)
+                     (= (:status dragged) (:id status))
+                     (transition-allowed? transitions (:status dragged) (:id status)))]
     [:div.board-column
-     {:on-drag-over (fn [e]
-                      (.preventDefault e)
-                      (set! (.. e -dataTransfer -dropEffect) "move"))
+     {:class (when (and dragged (not allowed?)) "board-column-disabled")
+      :on-drag-over (fn [e]
+                      (if allowed?
+                        (do
+                          (.preventDefault e)
+                          (set! (.. e -dataTransfer -dropEffect) "move"))
+                        (set! (.. e -dataTransfer -dropEffect) "none")))
       :on-drop (fn [e]
                  (.preventDefault e)
-                 (let [ticket-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
-                       dragged (first (filter #(= (:id %) ticket-id) tickets))
-                       priority (or (:priority dragged) "medium")
-                       group-tickets (get by-priority priority [])
-                       target-idx (count group-tickets)]
-                   (rf/dispatch [:reorder-ticket ticket-id (:id status) priority target-idx])))}
+                 (reset! drop-marker nil)
+                 (when allowed?
+                   (let [ticket-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
+                         dragged (first (filter #(= (:id %) ticket-id) tickets))
+                         priority (or (:priority dragged) "medium")
+                         group-tickets (get by-priority priority [])
+                         target-idx (count group-tickets)]
+                     (rf/dispatch [:reorder-ticket ticket-id (:id status) priority target-idx]))))}
      [:div.column-header
       {:style {:border-bottom-color (:color status)}}
-      [:span.column-title (t (:name-key status))]
+      [:span.column-title (or (:name status) (t (:name-key status)))]
       [:span.column-count (count tickets)]]
      [:div.column-cards
       (doall
        (for [priority (sort-by #(get priority-order % 1) all-priorities)]
          ^{:key priority}
-         [priority-group (:id status) priority (get by-priority priority [])]))]]))
+         [priority-group (:id status) priority (get by-priority priority []) allowed?]))]]))
+
+(defn board-columns []
+  (let [board-statuses @(rf/subscribe [:board-statuses])]
+    (if (seq board-statuses)
+      (map (fn [s] {:id (:code s) :name (:name s) :color (:color s)}) board-statuses)
+      statuses)))
 
 (defn board-view []
   [:div.board-view
-   (for [status statuses]
+   (for [status (board-columns)]
      ^{:key (:id status)}
      [board-column status])])
+
+(def create-board-open (r/atom false))
+(def manage-board-open (r/atom false))
+
+(defn create-board-modal []
+  (let [name (r/atom "")
+        type (r/atom "personal")]
+    (fn []
+      (when @create-board-open
+        [:div.modal-overlay
+         {:on-click (fn [e]
+                      (when (= (.-target e) (.-currentTarget e))
+                        (reset! create-board-open false)))}
+         [:div.modal
+          [:h3 (t :board/create)]
+          [:input.board-name-input
+           {:placeholder (t :board/name)
+            :value @name
+            :on-change #(reset! name (-> % .-target .-value))}]
+          [:div.board-type-row
+           [:label
+            [:input {:type "radio" :name "btype" :checked (= @type "personal")
+                     :on-change #(reset! type "personal")}]
+            [:span (t :board/personal)]]
+           [:label
+            [:input {:type "radio" :name "btype" :checked (= @type "common")
+                     :on-change #(reset! type "common")}]
+            [:span (t :board/common)]]]
+          [:div.modal-actions
+           [:button.cancel-button {:on-click #(reset! create-board-open false)}
+            (t :common/cancel)]
+           [:button.primary-button
+            {:disabled (empty? @name)
+             :on-click (fn []
+                         (rf/dispatch [:create-board @name @type])
+                         (reset! create-board-open false)
+                         (reset! name ""))}
+            (t :board/create)]]]]))))
+
+(defn board-dropdown []
+  (let [open? (r/atom false)
+        can-manage @(rf/subscribe [:can-manage-boards])]
+    (fn []
+      (let [boards @(rf/subscribe [:boards])
+            current @(rf/subscribe [:current-board])
+            can-manage @(rf/subscribe [:can-manage-boards])]
+        [:div.board-dropdown
+         [:button.board-dropdown-button
+          {:on-click #(swap! open? not)}
+          [:span.board-dropdown-name (or (:name current) (t :nav/board))]
+          [:span.board-dropdown-chevron "\u25BE"]]
+         (when @open?
+           [:div.board-dropdown-menu
+            (doall
+             (for [b boards]
+               ^{:key (:id b)}
+               [:button.board-dropdown-item
+                {:class (when (= (:id b) (:id current)) "active")
+                 :on-click (fn []
+                             (reset! open? false)
+                             (rf/dispatch [:select-board b]))}
+                [:span.board-dot {:style {:background-color
+                                          (if (:is_default b) "#3b82f6" "#8b5cf6")}}]
+                [:span.board-dropdown-label (:name b)]]))
+            [:div.board-dropdown-sep]
+            [:button.board-dropdown-item
+             {:on-click (fn []
+                          (reset! open? false)
+                          (reset! create-board-open true))}
+             [:span.board-dropdown-label (t :board/create)]]
+            (when can-manage
+              [:button.board-dropdown-item
+               {:on-click (fn []
+                            (reset! open? false)
+                            (swap! manage-board-open not))}
+               [:span.board-dropdown-label (t :board/manage-workflow)]])])]))))
+
+(defn lifecycle-editor []
+  (let [status-name (r/atom "")
+        status-code (r/atom "")
+        status-color (r/atom "#6b7280")]
+    (fn []
+      (let [board @(rf/subscribe [:current-board])
+            statuses (or (:statuses board) [])
+            transitions (or (:transitions board) [])
+            board-id (:id board)
+            on (fn [from to] (boolean (some #(and (= (:from_code %) from)
+                                                  (= (:to_code %) to))
+                                            transitions)))]
+        (when @manage-board-open
+          [:div.modal-overlay
+           {:on-click (fn [e]
+                        (when (= (.-target e) (.-currentTarget e))
+                          (reset! manage-board-open false)))}
+           [:div.modal.lifecycle-modal
+            [:h3 (t :board/workflow) " — " (:name board)]
+            [:div.manage-statuses
+             [:h4 (t :board/statuses)]
+             (doall
+              (for [s statuses]
+                ^{:key (:id s)}
+                [:div.status-row
+                 [:span.status-dot {:style {:background-color (:color s)}}]
+                 [:span.status-code (:code s)]
+                 [:input.status-name-input
+                  {:value (:name s)
+                   :on-change (fn [e]
+                                (rf/dispatch [:update-board-status (:id s) {:name (-> e .-target .-value)}]))}]
+                 [:input.status-color-input
+                  {:type "color" :value (:color s)
+                   :on-change (fn [e]
+                                (rf/dispatch [:update-board-status (:id s) {:color (-> e .-target .-value)}]))}]
+                 [:button.status-delete-button
+                  {:on-click #(rf/dispatch [:remove-board-status (:id s)])}
+                  "\u2715"]]))
+             [:div.add-status-row
+              [:input {:placeholder (t :board/status-code) :value @status-code
+                       :on-change #(reset! status-code (-> % .-target .-value))}]
+              [:input {:placeholder (t :board/status-name) :value @status-name
+                       :on-change #(reset! status-name (-> % .-target .-value))}]
+              [:input.status-color-input {:type "color" :value @status-color
+                                          :on-change #(reset! status-color (-> % .-target .-value))}]
+              [:button.primary-button
+               {:disabled (or (empty? @status-code) (empty? @status-name))
+                :on-click (fn []
+                            (rf/dispatch [:add-board-status
+                                          {:code @status-code :name @status-name :color @status-color}])
+                            (reset! status-code "") (reset! status-name ""))}
+               (t :common/add)]]]
+            [:div.manage-transitions
+             [:h4 (t :board/transitions)]
+             [:table.transition-matrix
+              [:thead
+               [:tr
+                [:th ""]
+                (doall (for [s statuses] ^{:key (str "h" (:id s))}
+                         [:th (:code s)]))]]
+              [:tbody
+               (doall
+                (for [s statuses]
+                  ^{:key (str "r" (:id s))}
+                  [:tr
+                   [:td (:code s)]
+                   (doall
+                    (for [t statuses]
+                      ^{:key (str (:id s) "-" (:id t))}
+                      [:td
+                       [:input {:type "checkbox"
+                                :checked (on (:code s) (:code t))
+                                :disabled (= (:code s) (:code t))
+                                :on-change (fn [_]
+                                             (rf/dispatch [:toggle-board-transition (:code s) (:code t)]))}]]))]))]]
+            [:div.modal-actions
+             [:button.primary-button {:on-click #(reset! manage-board-open false)}
+              (t :common/done)]]]]])))))
 
 (defn create-ticket-modal []
   (let [show-modal (r/atom false)
@@ -792,6 +992,12 @@
 (defn ticket-detail-header [ticket users]
   (let [groups @(rf/subscribe [:groups])
         observers @(rf/subscribe [:ticket-observers])
+        transitions @(rf/subscribe [:board-transitions])
+        board-statuses (board-columns)
+        current-status (:status ticket)
+        allowed-targets (filter #(transition-allowed? transitions current-status (:id %))
+                                board-statuses)
+        status-options (if (seq allowed-targets) allowed-targets board-statuses)
         ticket-observers (get observers (:id ticket) [])]
     [:div.ticket-detail-header
      [:button.back-button
@@ -801,17 +1007,17 @@
      [:div.ticket-meta
       [:select.status-select
        {:value (:status ticket)
-        :style {:background-color (get-status-color (:status ticket))}
+        :style {:background-color (board-status-color (:status ticket))}
         :on-change (fn [e]
                      (rf/dispatch [:update-ticket-field
                                    (:id ticket)
                                    :status
                                    (-> e .-target .-value)]))}
-       [:option {:value "backlog"} (t :status/backlog)]
-       [:option {:value "open"} (t :status/open)]
-       [:option {:value "in_progress"} (t :status/in-progress)]
-       [:option {:value "review"} (t :status/review)]
-       [:option {:value "done"} (t :status/done)]]
+       (doall
+        (for [s status-options]
+          ^{:key (:id s)}
+          [:option {:value (:id s)}
+           (or (:name s) (t (:name-key s)))]))]
       [:select.priority-select
        {:value (:priority ticket)
         :style {:background-color (get-priority-color (:priority ticket))}
@@ -1200,13 +1406,16 @@
     [:div.nav-bar
      [:div.nav-brand (t :app/title)]
      [:div.nav-links
+      [board-dropdown]
       [:a {:class (when (= current-view :board) "active")
            :on-click #(js/navigateTo "/")}
        (t :nav/board)]
       [:a {:class (when (= current-view :list) "active")
            :on-click #(js/navigateTo "/")}
        (t :nav/list)]
-      [create-ticket-modal]]
+      [create-ticket-modal]
+      [create-board-modal]
+      [lifecycle-editor]]
      [:div.nav-auth
       [language-switcher]
       [user-menu]]]))

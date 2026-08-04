@@ -118,3 +118,51 @@
 (defn remove-ticket-observer [ticket-id observer-type observer-id on-success on-error]
   (delete (str "/tickets/" ticket-id "/observers/" observer-type "/" observer-id)
           on-success on-error))
+
+(defn fetch-boards [on-success on-error]
+  (get "/boards" nil on-success on-error))
+
+(defn create-board [data on-success on-error]
+  (post "/boards" data on-success on-error))
+
+(defn fetch-board [id on-success on-error]
+  (get (str "/boards/" id) nil on-success on-error))
+
+(defn update-board [id data on-success on-error]
+  (put (str "/boards/" id) data on-success on-error))
+
+(defn delete-board [id on-success on-error]
+  (delete (str "/boards/" id) on-success on-error))
+
+(defn fetch-board-members [id on-success on-error]
+  (get (str "/boards/" id "/members") nil on-success on-error))
+
+(defn add-board-member [id member-type member-id on-success on-error]
+  (post (str "/boards/" id "/members")
+        {:member_type member-type :member_id member-id}
+        on-success on-error))
+
+(defn remove-board-member [id member-type member-id on-success on-error]
+  (delete (str "/boards/" id "/members/" member-type "/" member-id)
+          on-success on-error))
+
+(defn create-board-status [id data on-success on-error]
+  (post (str "/boards/" id "/statuses") data on-success on-error))
+
+(defn update-board-status [id status-id data on-success on-error]
+  (put (str "/boards/" id "/statuses/" status-id) data on-success on-error))
+
+(defn delete-board-status [id status-id on-success on-error]
+  (delete (str "/boards/" id "/statuses/" status-id) on-success on-error))
+
+(defn fetch-board-transitions [id on-success on-error]
+  (get (str "/boards/" id "/transitions") nil on-success on-error))
+
+(defn add-board-transition [id from-code to-code on-success on-error]
+  (post (str "/boards/" id "/transitions")
+        {:from_code from-code :to_code to-code}
+        on-success on-error))
+
+(defn remove-board-transition [id from-code to-code on-success on-error]
+  (delete (str "/boards/" id "/transitions/" from-code "/" to-code)
+          on-success on-error))

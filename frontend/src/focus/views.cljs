@@ -841,9 +841,10 @@
    [:div.board-share-group
     [:span.board-share-caption (t :board/users)]
     (if (seq users)
-      (doall
-       (for [u users]
-         (let [active? (contains? @user-ids (:id u))
+       (doall
+        (for [u users
+              :when (not (:is_deleted u))]
+          (let [active? (contains? @user-ids (:id u))
                toggle #(swap! user-ids (if active? disj conj) (:id u))]
            [:label.board-chip {:class (when active? "active")}
             [:input {:type "checkbox" :checked active? :on-change toggle}]
@@ -1035,7 +1036,8 @@
               {:value @assignee
                :on-change #(reset! assignee (-> % .-target .-value))}
               [:option {:value ""} (t :ticket/unassigned)]
-              (for [user users]
+              (for [user users
+                    :when (not (:is_deleted user))]
                 [:option {:key (str "u" (:id user)) :value (str "user:" (:id user))}
                  (:username user)])
               (for [group groups]
@@ -1168,7 +1170,8 @@
                                           (:id ticket)
                                           :assignee_type type])))))}
         [:option {:value "user:"} (t :ticket/unassigned)]
-        (for [user users]
+        (for [user users
+              :when (not (:is_deleted user))]
           ^{:key (str "user-" (:id user))}
           [:option {:value (str "user:" (:id user))} (:username user)])
         (for [group groups]
@@ -1206,9 +1209,10 @@
                                           (js/parseInt id)])))))}
         [:option {:value ""} (t :ticket/add-observer)]
         (for [user users
-              :when (not (some #(and (= (:observer_type %) "user")
-                                     (= (:observer_id %) (:id user)))
-                               ticket-observers))]
+              :when (and (not (:is_deleted user))
+                         (not (some #(and (= (:observer_type %) "user")
+                                          (= (:observer_id %) (:id user)))
+                                    ticket-observers)))]
           ^{:key (str "add-user-" (:id user))}
           [:option {:value (str "user:" (:id user))} (str "\u2795 " (:username user))])
         (for [group groups
@@ -1743,30 +1747,42 @@
                [:th (t :settings/email)]
                [:th (t :settings/role)]
                [:th ""]]]
-             [:tbody
-              (let [current-user-id (get-in @(rf/subscribe [:auth]) [:user :id])]
-                (for [user users]
-                  ^{:key (:id user)}
-                  [:tr
-                   [:td (:id user)]
-                   [:td (:username user)]
-                   [:td (:email user)]
-                   [:td
-                    [:select {:value (:role user "user")
-                              :on-change #(rf/dispatch [:update-user-role (:id user) (-> % .-target .-value)])}
-                     [:option {:value "user"} (t :settings/user)]
-                     [:option {:value "group_manager"} (t :settings/group-manager)]
-                     [:option {:value "admin"} (t :settings/admin)]]]
+              [:tbody
+               (let [current-user-id (get-in @(rf/subscribe [:auth]) [:user :id])]
+                 (for [user users]
+                   ^{:key (:id user)}
+                   [:tr
+                    [:td (:id user)]
+                    [:td (if (:is_deleted user)
+                           [:span.settings-deleted-user [:span (:username user)]
+                            [:span.settings-deleted-marker (t :user/deleted)]]
+                           (:username user))]
+                    [:td (:email user)]
                     [:td
-                     (when (not= (:id user) current-user-id)
+                     (if (:is_deleted user)
+                       (t :user/deleted)
+                       [:select {:value (:role user "user")
+                                 :on-change #(rf/dispatch [:update-user-role (:id user) (-> % .-target .-value)])}
+                        [:option {:value "user"} (t :settings/user)]
+                        [:option {:value "group_manager"} (t :settings/group-manager)]
+                        [:option {:value "admin"} (t :settings/admin)]])]
+                    [:td
+                     (cond
+                       (= (:id user) current-user-id) nil
+                       (:is_deleted user)
+                       [:button.btn-restore
+                        {:title (t :settings/undelete-user)
+                         :on-click #(rf/dispatch [:undelete-user (:id user)])}
+                        (t :settings/undelete-user)]
+                       :else
                        [:button.btn-delete
-                         {:title (t :settings/delete-user)
-                          :on-click #(rf/dispatch [:show-confirm-modal
-                                                   {:title (t :confirm/delete-user-title)
-                                                    :message (str (t :confirm/delete-user-message) " " (:username user) "?")
-                                                    :confirm-label (t :settings/delete-user)
-                                                    :cancel-label (t :ticket/cancel)
-                                                    :on-confirm (fn [] (rf/dispatch [:delete-user (:id user)]))}])}
+                        {:title (t :settings/delete-user)
+                         :on-click #(rf/dispatch [:show-confirm-modal
+                                                  {:title (t :confirm/delete-user-title)
+                                                   :message (str (t :confirm/delete-user-message) " " (:username user) "?")
+                                                   :confirm-label (t :settings/delete-user)
+                                                   :cancel-label (t :ticket/cancel)
+                                                   :on-confirm (fn [] (rf/dispatch [:delete-user (:id user)]))}])}
                         [:svg.trash-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
                          [:polyline {:points "3 6 5 6 21 6"}]
                          [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
@@ -1900,7 +1916,7 @@
       (let [group-id (:group-id modal)
             members (get group-members group-id [])
             member-ids (set (map :id members))
-            candidates (remove #(contains? member-ids (:id %)) users)]
+            candidates (remove #(or (contains? member-ids (:id %)) (:is_deleted %)) users)]
         [:div.modal-overlay.confirm-overlay
          {:on-click #(rf/dispatch [:close-group-members-modal])}
          [:div.confirm-modal.group-members-modal
@@ -1965,7 +1981,7 @@
                   [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]]])])
           [:div.settings-members-add
            [user-dropdown
-            {:options (remove #(contains? member-ids (:id %)) users)
+             {:options (remove #(or (contains? member-ids (:id %)) (:is_deleted %)) users)
              :placeholder (t :settings/select-user)
              :on-select (fn [user]
                           (rf/dispatch [:add-create-group-member (:id user)]))}]]

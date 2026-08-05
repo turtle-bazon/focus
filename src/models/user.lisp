@@ -14,28 +14,28 @@
 (defun get-user-by-id (id)
   "Get user by ID. Returns plist or nil."
   (let ((results (db-query
-                  "SELECT id, username, email, picture, role, created_at FROM users WHERE id = $1"
+                  "SELECT id, username, email, picture, role, created_at, is_deleted FROM users WHERE id = $1"
                   id :alists)))
     (when results (alist-to-plist (car results)))))
 
 (defun get-user-by-username (username)
   "Get user by username. Returns plist or nil."
   (let ((results (db-query
-                  "SELECT id, username, email, picture, role, created_at FROM users WHERE username = $1"
+                  "SELECT id, username, email, picture, role, created_at, is_deleted FROM users WHERE username = $1"
                   username :alists)))
     (when results (alist-to-plist (car results)))))
 
 (defun get-user-by-email (email)
   "Get user by email. Returns plist or nil."
   (let ((results (db-query
-                  "SELECT id, username, email, picture, role, created_at FROM users WHERE email = $1"
+                  "SELECT id, username, email, picture, role, created_at, is_deleted FROM users WHERE email = $1"
                   email :alists)))
     (when results (alist-to-plist (car results)))))
 
 (defun list-users ()
-  "List all users. Returns list of plists."
+  "List all users (including soft-deleted, flagged with :is-deleted). Returns list of plists."
   (pg-query-params
-   "SELECT id, username, email, picture, role, created_at FROM users ORDER BY username"
+   "SELECT id, username, email, picture, role, created_at, is_deleted FROM users ORDER BY username"
    nil))
 
 (defun update-user (id &key username email picture role)
@@ -67,13 +67,11 @@
   (get-user-by-id id))
 
 (defun delete-user (id)
-  "Delete user by ID."
-  ;; Unassign tickets assigned to this user
-  (db-execute "UPDATE tickets SET assignee_id = NULL WHERE assignee_id = $1" id)
-  ;; Detach comments and activity (keep history, drop the user link)
-  (db-execute "UPDATE comments SET user_id = NULL WHERE user_id = $1" id)
-  (db-execute "UPDATE activity SET user_id = NULL WHERE user_id = $1" id)
-  ;; Remove from ticket observers
-  (db-execute "DELETE FROM ticket_observers WHERE observer_type = 'user' AND observer_id = $1" id)
-  ;; Sessions and group_members cascade automatically
-  (db-execute "DELETE FROM users WHERE id = $1" id))
+  "Soft-delete user by ID. Keeps the row and every reference (comments, activity,
+   assignments, observers) intact so history stays consistent. A deleted user is
+   hidden from active user lists and can no longer log in."
+  (db-execute "UPDATE users SET is_deleted = TRUE WHERE id = $1" id))
+
+(defun undelete-user (id)
+  "Restore a soft-deleted user so they can log in and appear in active lists again."
+  (db-execute "UPDATE users SET is_deleted = FALSE WHERE id = $1" id))

@@ -299,4 +299,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM board_statuses bs WHERE bs.board_id = b.id
 );"
 )
+    ("0021-0021-users-soft-delet"
+     :up "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_users_is_deleted ON users(is_deleted);
+"
+)
 ))

@@ -445,6 +445,14 @@
                (json-response `(:message "User deleted")))
         (error-response "Invalid user ID"))))
 
+(defun handle-undelete-user (env)
+  "POST /api/users/:id/undelete"
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/users/(\\d+)/undelete$")))
+    (if id
+        (progn (undelete-user id)
+               (json-response `(:message "User restored")))
+        (error-response "Invalid user ID"))))
+
 ;;; Label handlers
 
 (defun handle-list-labels (env)

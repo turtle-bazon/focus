@@ -132,6 +132,9 @@
     ((and (string= method "DELETE")
           (ppcre:scan "^/api/users/\\d+$" path))
      (handle-delete-user env))
+    ((and (string= method "POST")
+          (ppcre:scan "^/api/users/\\d+/undelete$" path))
+     (handle-undelete-user env))
     ;; Labels
     ((and (string= path "/api/labels")
           (string= method "GET"))

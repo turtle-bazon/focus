@@ -747,6 +747,16 @@
         (rf/dispatch [:set-error (str "Failed to delete user: " error)])))
     {:db db}))
 
+(rf/reg-event-fx
+ :undelete-user
+ (fn [{:keys [db]} [_ user-id]]
+   (api/post (str "/users/" user-id "/undelete") {}
+     (fn [_]
+       (rf/dispatch [:fetch-users]))
+      (fn [error]
+        (rf/dispatch [:set-error (str "Failed to restore user: " error)])))
+    {:db db}))
+
 (rf/reg-event-db
  :show-confirm-modal
  (fn [db [_ modal]]

@@ -115,12 +115,19 @@ Returns (values email name username picture) or signals an error."
         username (%clean-json-value username))
   (let* ((existing (or (when email (get-user-by-email email))
                        (when username (get-user-by-username username))))
-         (user-id (if existing
-                      (progn (update-user (getf existing :id) :picture picture)
-                             (getf existing :id))
-                      (create-user (or username name email "user")
-                                   (or email (format nil "~a@oauth" (or username "user")))
-                                   :picture picture)))
+         (deleted-account (and existing (getf existing :is-deleted)))
+         (user-id (cond
+                    (deleted-account
+                     (bl:info "Auth blocked for deleted user: ~a" email)
+                     (return-from %handle-auth-success
+                       (%handle-auth-error "account-deleted")))
+                    (existing
+                     (progn (update-user (getf existing :id) :picture picture)
+                            (getf existing :id)))
+                    (t
+                     (create-user (or username name email "user")
+                                  (or email (format nil "~a@oauth" (or username "user")))
+                                  :picture picture))))
          (session-id (generate-session-id))
          (cookie-header (cl-oauth2:make-set-cookie-header
                          "focus_session" session-id

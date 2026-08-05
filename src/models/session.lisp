@@ -9,9 +9,11 @@
    session-id user-id expires-at))
 
 (defun get-db-session (session-id)
-  "Get a session from the database. Returns plist or nil."
+  "Get an active session for a user who has not been deleted. Returns plist or nil."
   (let ((results (db-query
-                  "SELECT id, user_id, created_at, expires_at FROM sessions WHERE id = $1 AND expires_at > now()"
+                  "SELECT s.id, s.user_id, s.created_at, s.expires_at
+                   FROM sessions s JOIN users u ON u.id = s.user_id
+                   WHERE s.id = $1 AND s.expires_at > now() AND u.is_deleted = FALSE"
                   session-id :alists)))
     (when results (alist-to-plist (car results)))))
 

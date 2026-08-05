@@ -77,6 +77,76 @@
     (when result
       (getf (car result) :count))))
 
+(defun list-all-board-activity (user-id &key (limit 20) (offset 0))
+  "List activity for tickets USER-ID is involved with (is assignee/owner or
+   observer, directly or via one of their groups) on boards they can see,
+   newest first. Rows include board and ticket context. NIL matches nothing."
+  (if (null user-id)
+      nil
+      (pg-query-params
+       "SELECT a.id, a.ticket_id, a.user_id, a.action, a.details, a.created_at,
+               b.id AS board_id, b.name AS board_name,
+               t.title AS ticket_title, t.status AS ticket_status
+        FROM activity a
+        JOIN tickets t ON t.id = a.ticket_id
+        JOIN boards b ON b.id = t.board_id
+        WHERE b.id IN (
+          SELECT DISTINCT v.id FROM boards v
+          LEFT JOIN board_members vm ON vm.board_id = v.id
+          LEFT JOIN group_members vg ON vg.group_id = vm.member_id
+            AND vm.member_type = 'group'
+          WHERE v.is_default
+             OR v.owner_id = $1
+             OR (vm.member_type = 'user' AND vm.member_id = $1)
+             OR vg.user_id = $1)
+          AND (
+            (t.assignee_type = 'user' AND t.assignee_id = $1)
+            OR (t.assignee_type = 'group' AND t.assignee_id IN
+                (SELECT gm.group_id FROM group_members gm WHERE gm.user_id = $1))
+            OR EXISTS (
+              SELECT 1 FROM ticket_observers obs
+              WHERE obs.ticket_id = t.id
+                AND ((obs.observer_type = 'user' AND obs.observer_id = $1)
+                     OR (obs.observer_type = 'group' AND obs.observer_id IN
+                         (SELECT gm.group_id FROM group_members gm WHERE gm.user_id = $1))))
+          )
+        ORDER BY a.created_at DESC
+        LIMIT $2 OFFSET $3"
+       (list user-id limit offset))))
+
+(defun count-all-board-activity (user-id)
+  "Count activity rows for tickets USER-ID is involved with, across all
+   boards they can see."
+  (if (null user-id)
+      0
+      (let ((result (pg-query-params
+                     "SELECT COUNT(a.id) AS count
+                      FROM activity a
+                      JOIN tickets t ON t.id = a.ticket_id
+                      WHERE t.board_id IN (
+                        SELECT DISTINCT v.id FROM boards v
+                        LEFT JOIN board_members vm ON vm.board_id = v.id
+                        LEFT JOIN group_members vg ON vg.group_id = vm.member_id
+                          AND vm.member_type = 'group'
+                        WHERE v.is_default
+                           OR v.owner_id = $1
+                           OR (vm.member_type = 'user' AND vm.member_id = $1)
+                           OR vg.user_id = $1)
+                        AND (
+                          (t.assignee_type = 'user' AND t.assignee_id = $1)
+                          OR (t.assignee_type = 'group' AND t.assignee_id IN
+                              (SELECT gm.group_id FROM group_members gm WHERE gm.user_id = $1))
+                          OR EXISTS (
+                            SELECT 1 FROM ticket_observers obs
+                            WHERE obs.ticket_id = t.id
+                              AND ((obs.observer_type = 'user' AND obs.observer_id = $1)
+                                   OR (obs.observer_type = 'group' AND obs.observer_id IN
+                                       (SELECT gm.group_id FROM group_members gm WHERE gm.user_id = $1))))
+                        )"
+                     (list user-id))))
+        (when result
+          (getf (car result) :count)))))
+
 (defun get-activity-by-id (id)
   "Get activity by ID. Returns plist or nil."
   (let ((results (db-query

@@ -130,6 +130,21 @@
    (:board-activity-loading db)))
 
 (rf/reg-sub
+ :all-activity
+ (fn [db _]
+   (:all-activity db)))
+
+(rf/reg-sub
+ :all-activity-loading
+ (fn [db _]
+   (:all-activity-loading db)))
+
+(rf/reg-sub
+ :has-more-all-activity
+ (fn [db _]
+   (< (count (:all-activity db)) (:all-activity-total db))))
+
+(rf/reg-sub
  :has-more-board-activity
  (fn [db _]
    (< (count (:board-activity db)) (:board-activity-total db))))

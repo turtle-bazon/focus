@@ -480,6 +480,58 @@
 (defn get-priority-color [priority]
   (get priority-colors priority "#6b7280"))
 
+(def board-color-palette
+  ["#3b82f6" "#8b5cf6" "#10b981" "#f59e0b" "#ef4444"
+   "#06b6d4" "#ec4899" "#84cc16" "#f97316" "#6366f1"])
+
+(defn rotl32 [x n]
+  (bit-or (bit-shift-left x n)
+          (unsigned-bit-shift-right x (- 32 n))))
+
+(defn murmur3-32 [s]
+  (let [len (count s)
+        data (mapv (fn [i] (.charCodeAt s i)) (range len))
+        nblocks (quot len 4)
+        c1 0xcc9e2d51
+        c2 0x1b873593
+        h1 (loop [i 0 h 0]
+             (if (< i nblocks)
+               (let [off (* i 4)
+                     k1 (bit-or (nth data off)
+                                (bit-shift-left (nth data (inc off)) 8)
+                                (bit-shift-left (nth data (+ off 2)) 16)
+                                (bit-shift-left (nth data (+ off 3)) 24))
+                     k1 (bit-and (js* "Math.imul(~{},~{})" k1 c1) 0xffffffff)
+                     k1 (rotl32 k1 15)
+                     k1 (bit-and (js* "Math.imul(~{},~{})" k1 c2) 0xffffffff)
+                     h (bit-xor h k1)
+                     h (rotl32 h 13)
+                     h (bit-and (+ h (js* "Math.imul(~{},~{})" h 5) 0xe6546b64) 0xffffffff)]
+                 (recur (inc i) h))
+               h))
+        tail-start (* nblocks 4)
+        k1 (loop [i tail-start k 0]
+             (if (< i len)
+               (recur (inc i)
+                      (bit-or k (bit-shift-left (bit-and (nth data i) 0xff)
+                                                (* 8 (- i tail-start)))))
+               k))
+        k1 (bit-and (js* "Math.imul(~{},~{})" k1 c1) 0xffffffff)
+        k1 (rotl32 k1 15)
+        k1 (bit-and (js* "Math.imul(~{},~{})" k1 c2) 0xffffffff)
+        h1 (bit-xor h1 k1)
+        h1 (bit-xor h1 len)
+        h1 (bit-xor h1 (unsigned-bit-shift-right h1 16))
+        h1 (bit-and (js* "Math.imul(~{},~{})" h1 0x85ebca6b) 0xffffffff)
+        h1 (bit-xor h1 (unsigned-bit-shift-right h1 13))
+        h1 (bit-and (js* "Math.imul(~{},~{})" h1 0xc2b2ae35) 0xffffffff)
+        h1 (bit-xor h1 (unsigned-bit-shift-right h1 16))]
+    (unsigned-bit-shift-right h1 0)))
+
+(defn board-color [name]
+  (nth board-color-palette
+       (mod (murmur3-32 (or name "")) (count board-color-palette))))
+
 (def drag-state (r/atom nil))
 
 (def drop-marker (r/atom nil))
@@ -841,8 +893,7 @@
                    :on-click (fn []
                                (reset! open? false)
                                (rf/dispatch [:select-board b]))}
-                  [:span.board-dot {:style {:background-color
-                                            (if (:is_default b) "#3b82f6" "#8b5cf6")}}]
+                   [:span.board-dot {:style {:background-color (board-color (:name b))}}]
                   [:span.board-dropdown-label (:name b)]]))
               [:div.board-dropdown-sep]
               [:button.board-dropdown-item
@@ -1408,9 +1459,100 @@
                 [board-activity-group group user-map])])
            (when loading
              [:div.loading-indicator (t :loading)])
+            (when (and has-more (not loading))
+              [:div.scroll-sentinel])]))})))
+ 
+(defn new-all-group [item]
+  {:board_id (:board_id item)
+   :board_name (:board_name item)
+   :tickets [{:ticket_id (:ticket_id item)
+              :ticket_title (:ticket_title item)
+              :items [item]}]})
+
+(defn group-all-activity [items]
+  (reduce
+   (fn [acc item]
+     (if-let [last-group (peek acc)]
+       (if (= (:board_id item) (:board_id last-group))
+         (let [tickets (:tickets last-group)
+               last-ticket (peek tickets)]
+           (if (and last-ticket (= (:ticket_id item) (:ticket_id last-ticket)))
+             (conj (pop acc)
+                   (assoc last-group :tickets
+                          (conj (pop tickets)
+                                (update last-ticket :items conj item))))
+             (conj (pop acc)
+                   (assoc last-group :tickets
+                          (conj tickets
+                                {:ticket_id (:ticket_id item)
+                                 :ticket_title (:ticket_title item)
+                                 :items [item]})))))
+         (conj acc (new-all-group item)))
+       (conj acc (new-all-group item))))
+   [] items))
+
+(defn all-activity-board [group user-map]
+  [:div.all-activity-board
+   [:div.all-activity-board-header
+    [:a.board-link
+     {:href (str "/boards/" (:board_id group))
+      :on-click (fn [e]
+                  (.preventDefault e)
+                  (js/navigateTo (str "/boards/" (:board_id group))))}
+     [:span.board-dot {:style {:background-color (board-color (:board_name group))}}]
+     [:span.all-activity-board-name (:board_name group)]]]
+   (for [ticket (:tickets group)]
+     ^{:key (str (:board_id group) "-" (:ticket_id ticket))}
+     [:div.all-activity-ticket
+      [:div.board-activity-ticket
+       [:a.ticket-link
+        {:href (str "/tickets/" (:ticket_id ticket))
+         :on-click (fn [e]
+                     (.preventDefault e)
+                     (js/navigateTo (str "/tickets/" (:ticket_id ticket))))}
+        (str "#" (:ticket_id ticket) " · " (:ticket_title ticket))]]
+      (for [item (:items ticket)]
+        ^{:key (:id item)}
+        [board-activity-item item user-map])])])
+
+(defn all-activity-view []
+  (let [container (r/atom nil)
+        observer (r/atom nil)]
+    (r/create-class
+     {:component-did-mount
+      (fn [_this]
+        (when-let [el @container]
+          (let [sentinel (.querySelector el ".scroll-sentinel")
+                obs (js/IntersectionObserver.
+                     (fn [entries]
+                       (when (.-isIntersecting (first entries))
+                         (rf/dispatch [:load-more-all-activity])))
+                     #js {:rootMargin "100px"})]
+            (when sentinel (.observe obs sentinel))
+            (reset! observer obs))))
+      :component-will-unmount
+      (fn [_this]
+        (when-let [o @observer] (.disconnect o)))
+      :reagent-render
+      (fn []
+        (let [activity @(rf/subscribe [:all-activity])
+              user-map @(rf/subscribe [:user-map])
+              loading @(rf/subscribe [:all-activity-loading])
+              has-more @(rf/subscribe [:has-more-all-activity])]
+          [:div.board-activity-page {:ref #(reset! container %)}
+           [:div.board-activity-header
+            [:h1 (t :nav/all-activity)]]
+           (if (and (empty? activity) (not loading))
+             [:div.empty-state (t :board/activity-empty)]
+             [:div.activity-list
+              (for [group (group-all-activity activity)]
+                ^{:key (str "b" (:board_id group))}
+                [all-activity-board group user-map])])
+           (when loading
+             [:div.loading-indicator (t :loading)])
            (when (and has-more (not loading))
              [:div.scroll-sentinel])]))})))
-
+ 
 (defn ticket-detail []
   (let [new-comment (r/atom "")]
     (fn []
@@ -1561,6 +1703,9 @@
       [:a {:class (when (= current-view :board-activity) "active")
            :on-click #(js/navigateTo (str "/boards/" (or board-id "") "/activity"))}
        (t :tab/activity)]
+      [:a {:class (when (= current-view :all-activity) "active")
+           :on-click #(js/navigateTo "/activity")}
+       (t :nav/all-activity)]
       [create-ticket-modal]
       [create-board-modal]
       [lifecycle-editor]]
@@ -1838,6 +1983,7 @@
        :board [board-view]
        :detail [ticket-detail]
        :board-activity [board-activity-view]
+       :all-activity [all-activity-view]
        :settings [settings-view]
        [board-view])
      [confirm-modal]

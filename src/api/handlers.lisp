@@ -380,6 +380,19 @@
                 (json-response `(:activity ,activity :total ,total)))))
         (error-response "Invalid board ID"))))
 
+(defun handle-list-all-board-activity (env)
+  "GET /api/activity — combined activity across all visible boards."
+  (let* ((query (getf env :query-string))
+         (params (parse-query-string query))
+         (limit-str (cdr (assoc "limit" params :test #'string=)))
+         (offset-str (cdr (assoc "offset" params :test #'string=)))
+         (limit (if limit-str (parse-integer limit-str) 20))
+         (offset (if offset-str (parse-integer offset-str) 0))
+         (user-id (get-user-id-from-env env))
+         (activity (list-all-board-activity user-id :limit limit :offset offset))
+         (total (count-all-board-activity user-id)))
+    (json-response `(:activity ,activity :total ,total))))
+
 ;;; Search handlers
 
 (defun handle-search-tickets (env)

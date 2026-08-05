@@ -8,6 +8,7 @@
   {;; ===== ENGLISH =====
    :en
    {:nav/board "Board"
+     :nav/all-activity "All Activity"
     :board/personal "Personal"
     :board/common "Common"
     :board/create-hint "Give your board a name and pick a type."
@@ -125,6 +126,7 @@
    ;; ===== RUSSIAN =====
    :ru
    {:nav/board "Доска"
+     :nav/all-activity "Все действия"
     :board/personal "Личная"
     :board/common "Общая"
     :board/create-hint "Дайте доске имя и выберите тип."
@@ -239,6 +241,7 @@
    ;; ===== TURKISH =====
    :tr
    {:nav/board "Pano"
+     :nav/all-activity "Tüm Etkinlik"
     :board/personal "Kişisel"
     :board/common "Ortak"
     :board/create-hint "Panonuza bir ad verin ve bir tür seçin."
@@ -353,6 +356,7 @@
    ;; ===== UKRAINIAN =====
    :uk
    {:nav/board " Дошка"
+     :nav/all-activity "Уся активність"
     :board/personal "Особиста"
     :board/common "Спільна"
     :board/create-hint "Дайте дошці ім'я та виберіть тип."
@@ -467,6 +471,7 @@
    ;; ===== MANDARIN CHINESE =====
    :zh
    {:nav/board "看板"
+     :nav/all-activity "全部活动"
     :board/personal "私人"
     :board/common "团队"
     :board/create-hint "为看板命名并选择类型。"
@@ -581,6 +586,7 @@
    ;; ===== FRENCH =====
    :fr
    {:nav/board "Tableau"
+     :nav/all-activity "Toute l'activité"
     :board/personal "Privé"
     :board/common "Commun"
     :board/create-hint "Nommez votre tableau et choisissez un type."
@@ -695,6 +701,7 @@
    ;; ===== GERMAN =====
    :de
    {:nav/board "Board"
+     :nav/all-activity "Alle Aktivitäten"
     :board/personal "Privat"
     :board/common "Gemeinsam"
     :board/create-hint "Geben Sie Ihrem Board einen Namen und wählen Sie einen Typ."
@@ -809,6 +816,7 @@
    ;; ===== SPANISH =====
    :es
    {:nav/board "Tablero"
+     :nav/all-activity "Toda la actividad"
     :board/personal "Personal"
     :board/common "Común"
     :board/create-hint "Dale un nombre a tu tablero y elige un tipo."
@@ -923,6 +931,7 @@
    ;; ===== JAPANESE =====
    :ja
    {:nav/board "ボード"
+     :nav/all-activity "すべてのアクティビティ"
     :board/personal "プライベート"
     :board/common "共通"
     :board/create-hint "ボードに名前を付け、タイプを選択してください。"
@@ -1037,6 +1046,7 @@
    ;; ===== HINDI =====
    :hi
    {:nav/board "बोर्ड"
+     :nav/all-activity "सभी गतिविधि"
     :board/personal "निजी"
     :board/common "सामान्य"
     :board/create-hint "अपने बोर्ड को एक नाम दें और एक प्रकार चुनें।"
@@ -1151,6 +1161,7 @@
    ;; ===== ITALIAN =====
    :it
    {:nav/board "Board"
+     :nav/all-activity "Tutta l'attività"
     :board/personal "Privata"
     :board/common "Comune"
     :board/create-hint "Dai un nome alla tua board e scegli un tipo."
@@ -1265,6 +1276,7 @@
    ;; ===== ARABIC =====
    :ar
    {:nav/board "لوحة"
+     :nav/all-activity "كل الأنشطة"
     :board/personal "خاصة"
     :board/common "مشتركة"
     :board/create-hint "أعطِ لوحتك اسمًا واختر نوعًا."
@@ -1379,6 +1391,7 @@
    ;; ===== PORTUGUESE =====
    :pt
    {:nav/board "Quadro"
+     :nav/all-activity "Toda a atividade"
     :board/personal "Privado"
     :board/common "Comum"
     :board/create-hint "Dê um nome ao seu quadro e escolha um tipo."
@@ -1493,6 +1506,7 @@
    ;; ===== KOREAN =====
    :ko
    {:nav/board "보드"
+     :nav/all-activity "모든 활동"
     :board/personal "Privado"
     :board/common "Comum"
     :board/create-hint "Dê um nome ao seu quadro e escolha um tipo."
@@ -1607,6 +1621,7 @@
    ;; ===== DUTCH =====
    :nl
    {:nav/board "Bord"
+     :nav/all-activity "Alle activiteit"
     :board/personal "Privado"
     :board/common "Comum"
     :board/create-hint "Dê um nome ao seu quadro e escolha um tipo."
@@ -1721,6 +1736,7 @@
    ;; ===== POLISH =====
    :pl
    {:nav/board "Tablica"
+     :nav/all-activity "Cała aktywność"
     :board/personal "Privado"
     :board/common "Comum"
     :board/create-hint "Dê um nome ao seu quadro e escolha um tipo."

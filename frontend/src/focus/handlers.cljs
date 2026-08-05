@@ -28,6 +28,9 @@
     :board-activity []
     :board-activity-total 0
     :board-activity-loading false
+    :all-activity []
+    :all-activity-total 0
+    :all-activity-loading false
     :search-query ""
     :loading true
     :error nil
@@ -85,8 +88,9 @@
              :loading false
               :current-view (if authenticated
                               (cond
-                                (re-matches #"/tickets/\d+(/.*)?" path) :detail
-                                (re-matches #"/boards/\d+/activity" path) :board-activity
+                                 (re-matches #"/tickets/\d+(/.*)?" path) :detail
+                                 (re-matches #"/activity" path) :all-activity
+                                 (re-matches #"/boards/\d+/activity" path) :board-activity
                                 (= path "/settings") :settings
                                 :else :board)
                               :landing)))))
@@ -443,8 +447,50 @@
         (fn [response]
           (rf/dispatch [:set-board-activity-more (:activity response)])
           (rf/dispatch [:set-board-activity-loading false]))
+         (fn [_error]
+           (rf/dispatch [:set-board-activity-loading false])))))
+   {:db db}))
+
+(rf/reg-event-fx
+ :fetch-all-activity
+ (fn [{:keys [db]} _]
+   (rf/dispatch [:set-all-activity-loading true])
+   (api/fetch-all-activity {:limit 20 :offset 0}
+    (fn [response]
+      (rf/dispatch [:set-all-activity-initial (:activity response) (:total response)]))
+    (fn [error]
+      (rf/dispatch [:set-all-activity-loading false])
+      (rf/dispatch [:set-error (str "Failed to fetch activity: " error)])))
+   {:db db}))
+
+(rf/reg-event-db
+ :set-all-activity-initial
+ (fn [db [_ activity total]]
+   (assoc db :all-activity (vec activity) :all-activity-total total
+          :all-activity-loading false)))
+
+(rf/reg-event-db
+ :set-all-activity-more
+ (fn [db [_ activity]]
+   (update db :all-activity #(into (vec %) activity))))
+
+(rf/reg-event-db
+ :set-all-activity-loading
+ (fn [db [_ loading]]
+   (assoc db :all-activity-loading loading)))
+
+(rf/reg-event-fx
+ :load-more-all-activity
+ (fn [{:keys [db]} _]
+   (when-not (:all-activity-loading db)
+     (let [offset (count (:all-activity db))]
+       (rf/dispatch [:set-all-activity-loading true])
+       (api/fetch-all-activity {:limit 20 :offset offset}
+        (fn [response]
+          (rf/dispatch [:set-all-activity-more (:activity response)])
+          (rf/dispatch [:set-all-activity-loading false]))
         (fn [_error]
-          (rf/dispatch [:set-board-activity-loading false])))))
+          (rf/dispatch [:set-all-activity-loading false])))))
    {:db db}))
 
 (rf/reg-event-db

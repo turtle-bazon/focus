@@ -392,8 +392,127 @@
    [editor-toolbar-button "\u201C" (t :editor/quote) #(editor-insert-block-tag "blockquote")]
    [editor-toolbar-button [:code "</>"] (t :editor/code) #(editor-insert-block-tag "pre")]
    [:div.editor-toolbar-separator]
-   [editor-toolbar-button "\uD83D\uDD17" (t :editor/link) editor-insert-link-tag]
-   [editor-toolbar-button "\uD83D\uDDBC" (t :editor/image) editor-insert-img-tag]])
+    [editor-toolbar-button "\uD83D\uDD17" (t :editor/link) editor-insert-link-tag]
+    [editor-toolbar-button "\uD83D\uDDBC" (t :editor/image) editor-insert-img-tag]])
+
+(defn- caret-node []
+  (let [sel (.getSelection js/window)]
+    (when (and sel (pos? (.-rangeCount sel)))
+      (let [range (.getRangeAt sel 0)
+            c (.-startContainer range)]
+        (if (= 3 (.-nodeType c)) (.-parentElement c) c)))))
+
+(defn- content-blank? [el]
+  (str/blank? (str/replace (or (.-innerText el) "") #"[\u200B\uFEFF\u00A0\s]" "")))
+
+(defn- quote-line [node quote]
+  "Innermost P/DIV element under QUOTE that contains NODE, or NIL."
+  (loop [n node]
+    (cond
+      (or (not n) (= n quote)) nil
+      (or (= "P" (.-nodeName n)) (= "DIV" (.-nodeName n))) n
+      :else (recur (.-parentElement n)))))
+
+(defn- quote-line-empty? [quote caret-container caret-offset]
+  "For a bare quote (no P/DIV lines), true only when the current line is empty:
+   the text before the caret (back to the previous <br>) is blank AND the text
+   after the caret (to the end of the quote) is blank. So 'text|<Enter>' and
+   '|<text><Enter>' do not exit; only an empty line does."
+  (let [caret (.createRange js/document)]
+    (.setStart caret caret-container caret-offset)
+    (let [before (.createRange js/document)
+          after (.createRange js/document)]
+      (let [prev-br (last (filter (fn [br]
+                                    (let [r (.createRange js/document)]
+                                      (.setStartAfter r br)
+                                      (<= (.compareBoundaryPoints r js/Range.END_TO_START caret) 0)))
+                                  (array-seq (.querySelectorAll quote "br"))))]
+        (if prev-br
+          (.setStartAfter before prev-br)
+          (.setStart before quote 0)))
+      (try
+        (.setEnd before caret-container caret-offset)
+        (catch js/Error _ nil))
+      (.selectNodeContents after quote)
+      (try
+        (.setStart after caret-container caret-offset)
+        (catch js/Error _ nil))
+      (and (str/blank? (str/replace (or (.toString before) "") #"[\u200B\uFEFF\u00A0\s]" ""))
+           (str/blank? (str/replace (or (.toString after) "") #"[\u200B\uFEFF\u00A0\s]" ""))))))
+
+(defn- editor-handle-blockquote-enter [e editor-el]
+  "Plain Enter on an empty last line of a blockquote (or in an empty quote)
+   exits the citation and starts a normal paragraph after it. Range-based so it
+   works for bare quotes (direct text, <br> lines) and P/DIV-wrapped quotes."
+  (let [sel (.getSelection js/window)]
+    (when (and sel (pos? (.-rangeCount sel)))
+      (let [range (.getRangeAt sel 0)
+            caret-container (.-startContainer range)
+            caret-offset (.-startOffset range)
+            node (if (= 3 (.-nodeType caret-container))
+                   (.-parentElement caret-container)
+                   caret-container)]
+        (when-let [quote (when (.-closest node) (.closest node "blockquote"))]
+          (let [quote-blank (content-blank? quote)
+                line (quote-line node quote)
+                line-blank (and line (content-blank? line))
+                line-last (and line (= line (.-lastElementChild quote)))
+                line-blank-and-last (and line-blank line-last)
+                bare-blank (and (nil? line) (quote-line-empty? quote caret-container caret-offset))
+                should-exit (or quote-blank line-blank-and-last bare-blank)]
+            (when should-exit
+              (.preventDefault e)
+              (let [parent (.-parentElement quote)
+                    next (.-nextElementSibling quote)]
+                ;; drop the empty trailing line: delete from caret to end of quote
+                (let [del (.createRange js/document)]
+                  (.selectNodeContents del quote)
+                  (.setStart del caret-container caret-offset)
+                  (.deleteContents del))
+                ;; trim any leftover <br> / blank nodes at the end of the quote
+                (loop []
+                  (when-let [lc (.-lastChild quote)]
+                    (when (or (= "BR" (.-nodeName lc))
+                              (str/blank? (str/replace (or (.-textContent lc) "") #"[\u200B\uFEFF\u00A0\s]" "")))
+                      (.removeChild quote lc)
+                      (recur))))
+                (let [quote-blank-after (content-blank? quote)]
+                  (when quote-blank-after (.remove quote))
+                  (let [p (.createElement js/document "p")]
+                    (.appendChild p (.createTextNode js/document "\u200B"))
+                    (if quote-blank-after
+                      (if next
+                        (.insertBefore parent p next)
+                        (.appendChild parent p))
+                      (.insertAdjacentElement quote "afterend" p))
+                    (let [new-sel (.getSelection js/window)
+                          new-range (.createRange js/document)]
+                      (.setStart new-range p 0)
+                      (.collapse new-range true)
+                      (when new-sel (.removeAllRanges new-sel))
+                      (.addRange new-sel new-range))
+                    (when-let [cb @editor-content-cb]
+                      (cb (editor-html->markdown (.-innerHTML editor-el))))
+                    true))))))))))
+
+(defn- editor-handle-shift-enter [e editor-el]
+  "Shift+Enter inside a code block exits it and continues with a normal paragraph."
+  (when-let [node (caret-node)]
+    (when-let [pre-node (when (.-closest node) (.closest node "pre"))]
+      (.preventDefault e)
+      (let [p (.createElement js/document "p")]
+        (.appendChild p (.createTextNode js/document "\u200B"))
+        (.insertAdjacentElement pre-node "afterend" p)
+        (let [sel (.getSelection js/window)
+              new-range (.createRange js/document)]
+          (.setStart new-range p 0)
+          (.collapse new-range true)
+          (when sel (.removeAllRanges sel))
+          (.addRange sel new-range))
+        (when-let [cb @editor-content-cb]
+          (cb (editor-html->markdown (.-innerHTML editor-el))))
+        true))))
+
 
 (defn wysiwyg-editor [opts]
   (let [mounted (r/atom false)]
@@ -405,7 +524,7 @@
          [editor-toolbar]
          [:div.markdown-editor-container
           [:div.markdown-editor-content
-           {:ref (fn [el]
+{:ref (fn [el]
                     (reset! editor-ref-atom el)
                     (when (and el (not @mounted) (:on-change opts))
                       (reset! mounted true)
@@ -417,28 +536,13 @@
                                              ((:on-change opts) md))))
                       (.addEventListener el "keydown"
                                          (fn [e]
-                                            (when (and (= (.-key e) "Enter")
-                                                       (.-shiftKey e))
-                                             (let [sel (.getSelection js/window)]
-                                               (when (and sel (pos? (.-rangeCount sel)))
-                                                 (let [range (.getRangeAt sel 0)
-                                                       container (.-startContainer range)
-                                                       node (if (= 3 (.-nodeType container)) (.-parentElement container) container)]
-                                                   (when-let [pre-node (when node (.closest node "pre"))]
-                                                     (.preventDefault e)
-                                                     (let [p (.createElement js/document "p")]
-                                                       (.appendChild p (.createTextNode js/document "\u200B"))
-                                                       (.insertAdjacentElement pre-node "afterend" p)
-                                                       (let [new-range (.createRange js/document)]
-                                                         (.setStart new-range p 0)
-                                                         (.collapse new-range true)
-                                                         (.removeAllRanges sel)
-                                                         (.addRange sel new-range))
-                                                       (when-let [cb @editor-content-cb]
-                                                         (let [md (editor-html->markdown (.-innerHTML el))]
-                                                            (cb md)))))))))))))
-            :contentEditable true
-            :data-placeholder (:placeholder opts "Write a comment...")}]]])})))
+                                           (when (and (= (.-key e) "Enter")
+                                                      (.-shiftKey e))
+                                             (editor-handle-shift-enter e el))
+                                           (when (= (.-key e) "Enter")
+                                             (editor-handle-blockquote-enter e el))))))
+             :contentEditable true
+             :data-placeholder (:placeholder opts "Write a comment...")}]]])})))
 
 (defn format-date [iso-str]
   (when iso-str

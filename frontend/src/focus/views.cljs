@@ -650,9 +650,11 @@
                (let [groups @(rf/subscribe [:groups])
                      group (first (filter #(= (:id %) (js/parseInt (:assignee_id ticket))) groups))]
                  (str "\uD83D\uDC65 " (or (:name group) (str "Group #" (:assignee_id ticket)))))
-               (let [user-map @(rf/subscribe [:user-map])
-                     user (get user-map (js/parseInt (:assignee_id ticket)))]
-                 (or (:username user) (str (t :ticket/user-prefix) (:assignee_id ticket)))))]])]))))
+               (if-let [assignee-id (:assignee_id ticket)]
+                 (let [user-map @(rf/subscribe [:user-map])
+                       user (get user-map (js/parseInt assignee-id))]
+                   (or (:username user) (str (t :ticket/user-prefix) assignee-id)))
+                 (t :ticket/unassigned)))]])]))))
 
 (defn priority-group [status-id priority tickets allowed?]
   (let [my-key [status-id priority]
@@ -1241,11 +1243,12 @@
   ^{:key (:id comment)}
   [:div.comment
    [:div.comment-header
-    [:span.comment-user
-     (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
-       (if author
-         [user-link author]
-         [:span (str (t :ticket/user-prefix) (:user_id comment))]))]
+     [:span.comment-user
+      (let [author (first (filter #(= (:id %) (:user_id comment)) users))]
+        (cond
+          author [user-link author]
+          (:user_id comment) [:span (str (t :ticket/user-prefix) (:user_id comment))]
+          :else [:span (t :user/deleted)]))]
     [:span.comment-date (format-date (:created_at comment))]]
    [:div.comment-body
     {:dangerouslySetInnerHTML
@@ -1338,9 +1341,10 @@
 (defn activity-item [item user-map]
   (let [details (parse-activity-details item)
         actor (get user-map (:user_id item))
-        actor-component (if actor
-                          [user-link actor]
-                          [:span (str (t :ticket/user-prefix) (:user_id item))])
+        actor-component (cond
+                          actor [user-link actor]
+                          (:user_id item) [:span (str (t :ticket/user-prefix) (:user_id item))]
+                          :else [:span (t :user/deleted)])
         action-content (activity-action-content item details actor-component)]
     ^{:key (:id item)}
     [:div.activity-item

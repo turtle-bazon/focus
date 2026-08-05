@@ -66,6 +66,16 @@
         ((stringp value) (parse-integer value))
         (t nil)))
 
+(defun json-id-list (value)
+  "Coerce a JSON array of IDs into a list of integers.
+   Accepts vectors, lists, or nil. Non-numeric entries are skipped."
+  (when value
+    (iter (for item in-sequence value)
+      (for id = (cond ((integerp item) item)
+                      ((and (stringp item) (every #'digit-char-p item))
+                       (parse-integer item))))
+      (when id (collecting id)))))
+
 (defun parse-json-body (env)
   "Parse JSON request body from Clack env."
   (let ((body (getf env :raw-body)))
@@ -270,6 +280,9 @@
                   (when title-changed
                     (log-activity id user-id "title_changed"
                                   :details `((:from . ,(getf old-ticket :title)) (:to . ,title)))))
+                ;; Any edit makes the editor an observer of the ticket.
+                (when (and user-id (get-user-by-id user-id))
+                  (add-ticket-observer id "user" user-id))
                 (ws-broadcast-ticket-update ticket)
                 (json-response ticket))
               (error-response "Ticket not found" 404))))
@@ -323,6 +336,10 @@
                           (if (stringp user-id) (parse-integer user-id) user-id)
                           "comment_added"
                           :details `((:user_id . ,user-id) (:body . ,comment-body)))
+            ;; Commenting makes the commenter an observer of the ticket.
+            (add-ticket-observer ticket-id
+                                 "user"
+                                 (if (stringp user-id) (parse-integer user-id) user-id))
             (ws-broadcast-comment-created comment ticket-id)
             (json-response `(:id ,id) 201)))
         (error-response "Invalid ticket ID"))))
@@ -626,7 +643,14 @@
       (when (and (equal type "common") (not (manager-p user-id)))
         (return-from handle-create-board
           (error-response "Only admins and group managers can create common boards" 403)))
-      (json-response `(:id ,(create-board name type user-id)) 201))))
+      (let ((board-id (create-board name type user-id)))
+        ;; Shared boards: share with selected groups and users.
+        (when (equal type "common")
+          (iter (for group-id in (json-id-list (json-assoc :group_ids body)))
+            (ensure-board-member board-id "group" group-id))
+          (iter (for member-id in (json-id-list (json-assoc :user_ids body)))
+            (ensure-board-member board-id "user" member-id)))
+        (json-response `(:id ,board-id) 201)))))
 
 (defun handle-get-board (env)
   "GET /api/boards/:id"

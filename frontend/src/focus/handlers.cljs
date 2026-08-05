@@ -769,10 +769,15 @@
 
 (rf/reg-event-fx
  :create-board
- (fn [{:keys [db]} [_ name type]]
-   (api/create-board {:name name :type (or type "personal")}
-    (fn [_]
-      (rf/dispatch [:fetch-boards]))
+ (fn [{:keys [db]} [_ name type group-ids user-ids]]
+   (api/create-board (cond-> {:name name :type (or type "personal")}
+                       (seq group-ids) (assoc :group_ids group-ids)
+                       (seq user-ids) (assoc :user_ids user-ids))
+    (fn [response]
+      (rf/dispatch [:fetch-boards])
+      (let [id (:id response)]
+        (rf/dispatch [:select-board {:id id}])
+        (rf/dispatch [:fetch-current-board id])))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create board: " error)])))
    {:db db}))

@@ -47,11 +47,40 @@
         ORDER BY b.is_default DESC, b.name"
        (list user-id))))
 
+(defun seed-board-lifecycle (board-id)
+  "Seed a board with the default status column set and allowed transitions."
+  (let ((statuses '(("backlog" "Backlog" "#6b7280" 0)
+                    ("open" "Open" "#3b82f6" 1)
+                    ("in_progress" "In Progress" "#f59e0b" 2)
+                    ("review" "Review" "#8b5cf6" 3)
+                    ("done" "Done" "#10b981" 4)))
+        (transitions '(("backlog" "open")
+                       ("open" "in_progress")
+                       ("open" "done")
+                       ("in_progress" "review")
+                       ("in_progress" "open")
+                       ("review" "done")
+                       ("review" "in_progress")
+                       ("done" "open"))))
+    (iter (for (code name color position) in statuses)
+      (db-query
+       "INSERT INTO board_statuses (board_id, code, name, color, position)
+        VALUES ($1, $2, $3, $4, $5)"
+       board-id code name color position))
+    (iter (for (from-code to-code) in transitions)
+      (db-query
+       "INSERT INTO board_transitions (board_id, from_code, to_code)
+        VALUES ($1, $2, $3)"
+       board-id from-code to-code))))
+
 (defun create-board (name type owner-id)
-  "Create a board. TYPE is 'common' or 'personal'. Returns the board ID."
-  (db-query
-   "INSERT INTO boards (name, type, owner_id) VALUES ($1, $2, $3) RETURNING id"
-   name type owner-id :single))
+  "Create a board with a default lifecycle. TYPE is 'common' or 'personal'.
+   Returns the board ID."
+  (let ((board-id (db-query
+                   "INSERT INTO boards (name, type, owner_id) VALUES ($1, $2, $3) RETURNING id"
+                   name type owner-id :single)))
+    (seed-board-lifecycle board-id)
+    board-id))
 
 (defun update-board (id &key name)
   "Update a board's fields."

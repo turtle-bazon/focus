@@ -719,76 +719,143 @@
 
 (defn create-board-modal []
   (let [name (r/atom "")
-        type (r/atom "personal")]
+        type (r/atom "personal")
+        group-ids (r/atom #{})
+        user-ids (r/atom #{})
+        prev-open (r/atom false)]
     (fn []
-      (when @create-board-open
-        [:div.modal-overlay
-         {:on-click (fn [e]
-                      (when (= (.-target e) (.-currentTarget e))
-                        (reset! create-board-open false)))}
-         [:div.modal
-          [:h3 (t :board/create)]
-          [:input.board-name-input
-           {:placeholder (t :board/name)
-            :value @name
-            :on-change #(reset! name (-> % .-target .-value))}]
-          [:div.board-type-row
-           [:label
-            [:input {:type "radio" :name "btype" :checked (= @type "personal")
-                     :on-change #(reset! type "personal")}]
-            [:span (t :board/personal)]]
-           [:label
-            [:input {:type "radio" :name "btype" :checked (= @type "common")
-                     :on-change #(reset! type "common")}]
-            [:span (t :board/common)]]]
-          [:div.modal-actions
-           [:button.cancel-button {:on-click #(reset! create-board-open false)}
-            (t :common/cancel)]
-           [:button.primary-button
-            {:disabled (empty? @name)
-             :on-click (fn []
-                         (rf/dispatch [:create-board @name @type])
-                         (reset! create-board-open false)
-                         (reset! name ""))}
-            (t :board/create)]]]]))))
+      (let [groups @(rf/subscribe [:groups])
+            users @(rf/subscribe [:users])]
+        (when (and @create-board-open (not @prev-open))
+          (reset! prev-open true)
+          (reset! name "")
+          (reset! type "personal")
+          (reset! group-ids #{})
+          (reset! user-ids #{})
+          (rf/dispatch [:fetch-groups])
+          (rf/dispatch [:fetch-users]))
+        (when (and (not @create-board-open) @prev-open)
+          (reset! prev-open false))
+        (when @create-board-open
+          [:div.modal-overlay.confirm-overlay
+           {:on-click (fn [e]
+                        (when (= (.-target e) (.-currentTarget e))
+                          (reset! create-board-open false)))}
+           [:div.confirm-modal.board-create-modal
+            [:h3.confirm-modal-title (t :board/create)]
+            [:p.confirm-modal-message (t :board/create-hint)]
+            [:label.board-field-label (t :board/name)]
+            [:input.board-name-input
+             {:placeholder (t :board/name-placeholder)
+              :value @name
+              :autoFocus true
+              :on-change #(reset! name (-> % .-target .-value))
+              :on-key-down #(when (and (= (.-key %) "Enter") (not (empty? @name)))
+                              (rf/dispatch [:create-board @name @type
+                                            (vec @group-ids) (vec @user-ids)])
+                              (reset! create-board-open false)
+                              (reset! name ""))}]
+            [:div.board-type-row
+             [:button.board-type-card
+              {:class (when (= @type "personal") "active")
+               :type "button"
+               :on-click #(reset! type "personal")}
+              [:span.board-type-emoji "👤"]
+              [:span.board-type-label (t :board/personal)]
+              [:span.board-type-desc (t :board/personal-desc)]]
+             [:button.board-type-card
+              {:class (when (= @type "common") "active")
+               :type "button"
+               :on-click #(reset! type "common")}
+              [:span.board-type-emoji "👥"]
+              [:span.board-type-label (t :board/common)]
+              [:span.board-type-desc (t :board/common-desc)]]]
+(when (= @type "common")
+  [:div.board-share-section
+   [:label.board-field-label (t :board/share-with)]
+   [:div.board-share-group
+    [:span.board-share-caption (t :board/groups)]
+    (if (seq groups)
+      (doall
+       (for [g groups]
+         (let [active? (contains? @group-ids (:id g))
+               toggle #(swap! group-ids (if active? disj conj) (:id g))]
+           [:label.board-chip {:class (when active? "active")}
+            [:input {:type "checkbox" :checked active? :on-change toggle}]
+            [:span (or (:name g) (str "Group " (:id g)))]])))
+      [:span.board-share-empty (t :board/no-groups)])]
+   [:div.board-share-group
+    [:span.board-share-caption (t :board/users)]
+    (if (seq users)
+      (doall
+       (for [u users]
+         (let [active? (contains? @user-ids (:id u))
+               toggle #(swap! user-ids (if active? disj conj) (:id u))]
+           [:label.board-chip {:class (when active? "active")}
+            [:input {:type "checkbox" :checked active? :on-change toggle}]
+            [:span (or (:username u) (:email u) (str "User " (:id u)))]])))
+      [:span.board-share-empty (t :board/no-users)])]])
+            [:div.confirm-modal-actions
+             [:button.btn-cancel {:on-click #(reset! create-board-open false)}
+              (t :common/cancel)]
+             [:button.btn-confirm-danger.btn-create-board
+              {:disabled (empty? @name)
+               :on-click (fn []
+                           (rf/dispatch [:create-board @name @type
+                                         (vec @group-ids) (vec @user-ids)])
+                           (reset! create-board-open false)
+                           (reset! name ""))}
+              (t :board/create)]]]])))))
 
 (defn board-dropdown []
   (let [open? (r/atom false)
-        can-manage @(rf/subscribe [:can-manage-boards])]
-    (fn []
-      (let [boards @(rf/subscribe [:boards])
-            current @(rf/subscribe [:current-board])
-            can-manage @(rf/subscribe [:can-manage-boards])]
-        [:div.board-dropdown
-         [:button.board-dropdown-button
-          {:on-click #(swap! open? not)}
-          [:span.board-dropdown-name (or (:name current) (t :nav/board))]
-          [:span.board-dropdown-chevron "\u25BE"]]
-         (when @open?
-           [:div.board-dropdown-menu
-            (doall
-             (for [b boards]
-               ^{:key (:id b)}
-               [:button.board-dropdown-item
-                {:class (when (= (:id b) (:id current)) "active")
-                 :on-click (fn []
-                             (reset! open? false)
-                             (rf/dispatch [:select-board b]))}
-                [:span.board-dot {:style {:background-color
-                                          (if (:is_default b) "#3b82f6" "#8b5cf6")}}]
-                [:span.board-dropdown-label (:name b)]]))
-            [:div.board-dropdown-sep]
-            [:button.board-dropdown-item
-             {:on-click (fn []
-                          (reset! open? false)
-                          (reset! create-board-open true))}
-             [:span.board-dropdown-label (t :board/create)]]
-            (when can-manage
+        ref (r/atom nil)
+        on-click-outside
+        (fn [e]
+          (when (and @open? @ref)
+            (when-not (.contains @ref (.-target e))
+              (reset! open? false))))]
+    (r/create-class
+     {:component-did-mount
+      (fn [] (.addEventListener js/document "mousedown" on-click-outside))
+      :component-will-unmount
+      (fn [] (.removeEventListener js/document "mousedown" on-click-outside))
+      :reagent-render
+      (fn []
+        (let [boards @(rf/subscribe [:boards])
+              current @(rf/subscribe [:current-board])
+              can-manage @(rf/subscribe [:can-manage-boards])]
+          [:div.board-dropdown {:ref #(reset! ref %)
+                                :class (when @open? "open")}
+           [:button.board-dropdown-button
+            {:on-click #(swap! open? not)}
+            [:span.board-dropdown-name (or (:name current) (t :nav/board))]
+            [:span.board-dropdown-chevron "\u25BE"]]
+           (when @open?
+             [:div.board-dropdown-menu
+              (doall
+               (for [b boards]
+                 ^{:key (:id b)}
+                 [:button.board-dropdown-item
+                  {:class (when (= (:id b) (:id current)) "active")
+                   :on-click (fn []
+                               (reset! open? false)
+                               (rf/dispatch [:select-board b]))}
+                  [:span.board-dot {:style {:background-color
+                                            (if (:is_default b) "#3b82f6" "#8b5cf6")}}]
+                  [:span.board-dropdown-label (:name b)]]))
+              [:div.board-dropdown-sep]
               [:button.board-dropdown-item
                {:on-click (fn []
                             (reset! open? false)
-                            (swap! manage-board-open not))}
-               [:span.board-dropdown-label (t :board/manage-workflow)]])])]))))
+                            (reset! create-board-open true))}
+               [:span.board-dropdown-label (t :board/create)]]
+              (when can-manage
+                [:button.board-dropdown-item
+                 {:on-click (fn []
+                              (reset! open? false)
+                              (swap! manage-board-open not))}
+                 [:span.board-dropdown-label (t :board/manage-workflow)]])])]))})))
 
 (defn lifecycle-editor []
   (let [status-name (r/atom "")

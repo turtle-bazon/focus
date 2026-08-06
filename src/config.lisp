@@ -11,11 +11,6 @@
 (defun config->bind-port (config) (getf config :bind-port))
 (defun config->nrepl-port (config) (getf config :nrepl-port))
 (defun config->nrepl-address (config) (getf config :nrepl-address))
-(defun config->static-dir (config)
-  (let ((dir (or (getf config :static-dir) "./static/")))
-    (if (uiop:absolute-pathname-p dir)
-        dir
-        (merge-pathnames dir *default-pathname-defaults*))))
 
 ;;; OAuth2 config
 

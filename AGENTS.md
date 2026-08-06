@@ -30,6 +30,10 @@ Ticket tracker. Create, manage, and track tickets with labels, assignees, and st
 
 SQL migration files live in `migrations/`. Run `make generate-migrations` to regenerate `src/migrations.lisp` which embeds all SQL into the binary. The embedded migrations run automatically on server startup via `migrate-up`.
 
+### Static Assets
+
+Static assets (frontend JS/CSS/HTML) are **embedded into the binary** — no `static-dir` config, no filesystem reads at runtime. `make generate-static` runs `tools/build-static.lisp`, which base64-encodes every file under `build/static/` into `src/static-assets.lisp` (generated, do not edit). `src/static.lisp` decodes them on demand (cached); `serve-static-file` streams them from the image. The `build` target runs `generate-static` automatically.
+
 ### Schema
 
 ```sql
@@ -228,6 +232,7 @@ make dev-stop       # Stop background process
 make clean          # Remove build/
 make tests          # Run test suite
 make generate-migrations  # Regenerate migrations.lisp from SQL files
+make generate-static      # Regenerate static-assets.lisp from build/static/
 ```
 
 ## ASDF System Definition
@@ -260,6 +265,8 @@ make generate-migrations  # Regenerate migrations.lisp from SQL files
                  ((:file "package")
                   (:file "config")
                   (:file "migrations")
+                  (:file "static-assets")
+                  (:file "static")
                   (:file "db")
                   (:file "nrepl")
                   (:module "models"

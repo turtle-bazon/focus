@@ -17,23 +17,17 @@
       (t "application/octet-stream"))))
 
 (defun serve-static-file (path)
-  "Serve a static file from the configured static directory."
+  "Serve a static file embedded in the binary image."
   (let* ((rel-path (if (and (plusp (length path))
                             (char= (char path 0) #\/))
                        (subseq path 1)
                        path))
-         (root (config->static-dir *config*))
-         (full-path (merge-pathnames rel-path root)))
-    (if (and (probe-file full-path)
-             (not (uiop:directory-pathname-p full-path)))
-        (let ((content (with-open-file (s full-path :direction :input :element-type '(unsigned-byte 8))
-                         (let ((data (make-array (file-length s) :element-type '(unsigned-byte 8))))
-                           (read-sequence data s)
-                           data))))
-          (list 200
-                `(:content-type ,(guess-content-type path)
-                  :content-length ,(length content))
-                (list content)))
+         (content (static-asset-bytes rel-path)))
+    (if content
+        (list 200
+              `(:content-type ,(guess-content-type path)
+                :content-length ,(length content))
+              (list content))
         nil)))
 
 ;;; API Router

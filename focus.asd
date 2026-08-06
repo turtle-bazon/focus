@@ -18,13 +18,16 @@
                #:bordeaux-threads
                #:uiop
                #:dexador
-               #:cl-oauth2)
+               #:cl-oauth2
+               #:cl-base64)
   :serial t
   :components ((:module "src"
                 :components
                  ((:file "package")
                   (:file "config")
                   (:file "migrations")
+                  (:file "static-assets")
+                  (:file "static")
                   (:file "db")
                    (:file "nrepl")
                    (:file "ws")

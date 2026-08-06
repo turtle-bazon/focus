@@ -3,4 +3,6 @@
   (:nicknames :f)
   (:export #:main
            #:migrate-up
-           #:migrate-down))
+           #:migrate-down
+           #:reload-static-assets
+           #:static-asset-paths))

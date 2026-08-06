@@ -10,7 +10,7 @@
 (defn- render-inline [text]
   (-> text
       escape-html
-      (str/replace #"!\[(.+?)\]\((.+?)\)" "<img src=\"$2\" alt=\"$1\">")
+      (str/replace #"!\[([^\]]*)\]\((.+?)\)" "<img src=\"$2\" alt=\"$1\">")
       (str/replace #"\*\*(.+?)\*\*" "<strong>$1</strong>")
       (str/replace #"\*(.+?)\*" "<em>$1</em>")
       (str/replace #"~~(.+?)~~" "<del>$1</del>")

@@ -15,11 +15,12 @@
   :clean-targets ^{:protect false} ["resources/public/js" "target"]
   :cljsbuild {:builds [{:id "min"
                           :source-paths ["src"]
-                           :compiler {:main focus.core
-                                      :output-to "resources/public/js/app.js"
-                                      :output-dir "target/cljsbuild/js"
-                                      :optimizations :advanced
-                                      :closure-warnings {:global-this :off}}}
+                             :compiler {:main focus.core
+                                        :output-to "resources/public/js/app.js"
+                                        :output-dir "target/cljsbuild/js"
+                                        :externs ["resources/lucide.ext.js"]
+                                        :optimizations :advanced
+                                        :closure-warnings {:global-this :off}}}
                          {:id "test"
                           :source-paths ["test"]
                           :compiler {:main focus.parser-test

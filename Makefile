@@ -16,6 +16,7 @@ frontend: prepare
 	cp frontend/resources/public/css/style.css build/static/css/
 	mkdir -p build/static/js
 	cp frontend/resources/public/js/app.js build/static/js/
+	cp frontend/resources/public/js/lucide.min.js build/static/js/
 
 dev-start:
 	nohup ./build/focus > /tmp/focus.log 2>&1 &

@@ -9,6 +9,18 @@
   (let [locale @(rf/subscribe [:locale])]
     (i18n/t locale key)))
 
+(defn- lucide-svg [icon-name & {:keys [size] :or {size 18}}]
+  (when-let [icon (aget js/lucide.icons icon-name)]
+    (let [el (js/lucide.createElement icon)]
+      (.setAttribute el "width" (str size))
+      (.setAttribute el "height" (str size))
+      (.-outerHTML el))))
+
+(defn lucide-icon [icon-name & {:keys [size] :or {size 18}}]
+  (when-let [svg (lucide-svg icon-name :size size)]
+    [:span.lucide-icon
+     {:dangerouslySetInnerHTML {:__html svg}}]))
+
 (defn- find-tag-end [html start-pos open-re close-re]
   (loop [pos start-pos
          depth 1]
@@ -199,6 +211,7 @@
         (str/replace #"<del[^>]*>(.*?)</del>" "~~$1~~")
         (str/replace #"<code[^>]*>(.*?)</code>" "`$1`")
         (str/replace #"<a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>" "[$2]($1)")
+        (str/replace #"<img[^>]*src=\"([^\"]+)\"[^>]*alt=\"([^\"]*)\"[^>]*/?>" "![$2]($1)")
         (str/replace #"<img[^>]*src=\"([^\"]+)\"[^>]*/?>" "![]($1)")
         (str/replace #"<hr\s*/?\s*>" "---\n")
         convert-blockquotes
@@ -216,6 +229,8 @@
 
 (def ^:private editor-content-cb (atom nil))
 (def ^:private editor-ref-atom (atom nil))
+(def ^:private insert-modal (r/atom nil))
+(def ^:private pending-insert-range (atom nil))
 
 (defn editor-sync-content []
   (when-let [cb @editor-content-cb]
@@ -272,39 +287,126 @@
 (defn editor-insert-link-tag []
   (let [sel (.getSelection js/window)]
     (when (and sel (pos? (.-rangeCount sel)))
+      (reset! pending-insert-range (.cloneRange (.getRangeAt sel 0)))
       (let [range (.getRangeAt sel 0)
-            url (js/prompt "URL:")]
-        (when (seq url)
-          (if (not (.-collapsed range))
-            (let [fragment (.cloneContents range)
-                  a (.createElement js/document "a")]
-              (set! (.-href a) url)
-              (set! (.-target a) "_blank")
-              (.appendChild a fragment)
-              (.deleteContents range)
-              (.insertNode range a))
-            (let [a (.createElement js/document "a")]
-              (set! (.-href a) url)
-              (set! (.-target a) "_blank")
-              (set! (.-textContent a) url)
-              (.insertNode range a)
-              (.setStart range a (.-textContent.length a))
-              (.collapse range true)))
-          (editor-sync-content))))))
+            selected (when-not (.-collapsed range) (.toString range))]
+        (reset! insert-modal {:kind :link :url "" :text (or selected "")})))))
 
 (defn editor-insert-img-tag []
   (let [sel (.getSelection js/window)]
     (when (and sel (pos? (.-rangeCount sel)))
-      (let [range (.getRangeAt sel 0)
-            url (js/prompt "Image URL:")]
-        (when (seq url)
-          (let [img (.createElement js/document "img")]
-            (set! (.-src img) url)
-            (set! (.-style img) "max-width:100%;border-radius:6px")
-            (.insertNode range img)
-            (.setStartAfter range img)
-            (.collapse range true)
-            (editor-sync-content)))))))
+      (reset! pending-insert-range (.cloneRange (.getRangeAt sel 0)))
+      (reset! insert-modal {:kind :image :url ""}))))
+
+(defn editor-submit-insert []
+  (let [modal @insert-modal]
+    (when (some? modal)
+      (try
+        (let [{:keys [kind url text]} modal
+              range @pending-insert-range
+              url (str/trim (or url ""))
+              visible-text (str/trim (or text ""))]
+          (when (and (seq url) range)
+            (cond
+              (= kind :link)
+              (let [a (.createElement js/document "a")]
+                (set! (.-href a) url)
+                (set! (.-target a) "_blank")
+                (if (not (.-collapsed range))
+                  (if (seq visible-text)
+                    (do (set! (.-textContent a) visible-text)
+                        (.deleteContents range)
+                        (.insertNode range a))
+                    (let [fragment (.cloneContents range)]
+                      (.appendChild a fragment)
+                      (.deleteContents range)
+                      (.insertNode range a)))
+                  (let [text-node (.createTextNode js/document
+                                                   (if (seq visible-text) visible-text url))]
+                    (.appendChild a text-node)
+                    (.insertNode range a)))
+                (let [sel (.getSelection js/window)
+                      caret (.createRange js/document)
+                      caret-node (if (pos? (.-length (.-childNodes a)))
+                                   (.-firstChild a)
+                                   a)]
+                  (.setStart caret caret-node
+                             (if (= 3 (.-nodeType caret-node))
+                               (.-length (.-data caret-node))
+                               0))
+                  (.collapse caret true)
+                  (.removeAllRanges sel)
+                  (.addRange sel caret)))
+              (= kind :image)
+              (let [img (.createElement js/document "img")]
+                (set! (.-src img) url)
+                (set! (.-style img) "max-width:100%;border-radius:6px")
+                (when (seq visible-text) (set! (.-alt img) visible-text))
+                (.insertNode range img)
+                (.setStartAfter range img)
+                (.collapse range true)))
+            (editor-sync-content)))
+        (finally
+          (reset! insert-modal nil))))))
+
+(defn insert-url-modal []
+  (let [esc-handler (fn [e]
+                      (when (= (.-key e) "Escape")
+                        (reset! insert-modal nil)))]
+    (r/create-class
+     {:component-did-mount (fn [_]
+                             (.addEventListener js/document "keydown" esc-handler))
+      :component-will-unmount (fn [_]
+                                (.removeEventListener js/document "keydown" esc-handler))
+      :reagent-render
+      (fn []
+        (when-let [{:keys [kind url text]} @insert-modal]
+          (let [is-link? (= kind :link)
+                title (t (if is-link? :editor/insert-link-title :editor/insert-image-title))
+                icon-name (if is-link? "Link" "Image")
+                commit-ready? (seq (str/trim (if is-link? url (or url ""))))]
+            [:div.modal-overlay.confirm-overlay
+             {:on-click (fn [e]
+                          (when (= (.-target e) (.-currentTarget e))
+                            (reset! insert-modal nil)))}
+             [:div.confirm-modal.insert-url-modal
+              [:div.confirm-modal-icon.insert-url-icon
+               [lucide-icon icon-name {:size 24}]]
+              [:h3.confirm-modal-title title]
+              [:p.confirm-modal-message (t :editor/hint)]
+              (when is-link?
+                [:div
+                 [:label.board-field-label (t :editor/text)]
+                 [:input.board-name-input.insert-url-input
+                  {:type "text"
+                   :value text
+                   :autoFocus true
+                   :placeholder (t :editor/text-placeholder)
+                   :on-change #(swap! insert-modal assoc :text (-> % .-target .-value))
+                   :on-key-down (fn [e]
+                                  (when (= (.-key e) "Enter")
+                                    (.preventDefault e)
+                                    (when (seq (str/trim url))
+                                      (editor-submit-insert))))}]])
+              [:label.board-field-label (t :editor/url)]
+              [:input.board-name-input.insert-url-input
+               {:type "url"
+                :value url
+                :autoFocus (not is-link?)
+                :placeholder (t :editor/url-placeholder)
+                :on-change #(swap! insert-modal assoc :url (-> % .-target .-value))
+                :on-key-down (fn [e]
+                               (when (= (.-key e) "Enter")
+                                 (.preventDefault e)
+                                 (when (seq (str/trim url))
+                                   (editor-submit-insert))))}]
+              [:div.confirm-modal-actions
+               [:button.btn-cancel {:on-click #(reset! insert-modal nil)}
+                (t :common/cancel)]
+               [:button.btn-confirm-primary.insert-url-commit
+                {:disabled (empty? (str/trim url))
+                 :on-click editor-submit-insert}
+                (t :common/insert)]]]])))})))
 
 (defn editor-insert-list-tag [tag]
   (when-let [ce @editor-ref-atom]
@@ -382,18 +484,18 @@
 
 (defn editor-toolbar []
   [:div.editor-toolbar
-   [editor-toolbar-button [:strong "B"] (t :editor/bold) #(editor-wrap-tag "strong")]
-   [editor-toolbar-button [:em "I"] (t :editor/italic) #(editor-wrap-tag "em")]
-   [editor-toolbar-button [:s "S"] (t :editor/strike) #(editor-wrap-tag "s")]
+   [editor-toolbar-button [lucide-icon "Bold" {:size 15}] (t :editor/bold) #(editor-wrap-tag "strong")]
+   [editor-toolbar-button [lucide-icon "Italic" {:size 15}] (t :editor/italic) #(editor-wrap-tag "em")]
+   [editor-toolbar-button [lucide-icon "Strikethrough" {:size 15}] (t :editor/strike) #(editor-wrap-tag "s")]
    [:div.editor-toolbar-separator]
-   [editor-toolbar-button "\u2022" (t :editor/bullet-list) #(editor-insert-list-tag "ul")]
-   [editor-toolbar-button "1." (t :editor/ordered-list) #(editor-insert-list-tag "ol")]
+   [editor-toolbar-button [lucide-icon "List" {:size 15}] (t :editor/bullet-list) #(editor-insert-list-tag "ul")]
+   [editor-toolbar-button [lucide-icon "ListOrdered" {:size 15}] (t :editor/ordered-list) #(editor-insert-list-tag "ol")]
    [:div.editor-toolbar-separator]
-   [editor-toolbar-button "\u201C" (t :editor/quote) #(editor-insert-block-tag "blockquote")]
-   [editor-toolbar-button [:code "</>"] (t :editor/code) #(editor-insert-block-tag "pre")]
+   [editor-toolbar-button [lucide-icon "Quote" {:size 15}] (t :editor/quote) #(editor-insert-block-tag "blockquote")]
+   [editor-toolbar-button [lucide-icon "Code" {:size 15}] (t :editor/code) #(editor-insert-block-tag "pre")]
    [:div.editor-toolbar-separator]
-    [editor-toolbar-button "\uD83D\uDD17" (t :editor/link) editor-insert-link-tag]
-    [editor-toolbar-button "\uD83D\uDDBC" (t :editor/image) editor-insert-img-tag]])
+   [editor-toolbar-button [lucide-icon "Link" {:size 15}] (t :editor/link) editor-insert-link-tag]
+   [editor-toolbar-button [lucide-icon "Image" {:size 15}] (t :editor/image) editor-insert-img-tag]])
 
 (defn- caret-node []
   (let [sel (.getSelection js/window)]
@@ -2115,7 +2217,8 @@
        [board-view])
      [confirm-modal]
      [group-members-modal]
-     [create-group-modal]]))
+     [create-group-modal]
+     [insert-url-modal]]))
 
 (defn main-panel []
   (let [authenticated? @(rf/subscribe [:authenticated?])

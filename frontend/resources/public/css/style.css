@@ -2390,3 +2390,41 @@ body {
 .transition-matrix input[type="checkbox"]:disabled {
   cursor: not-allowed;
 }
+
+/* ===== Lucide Icon ===== */
+.lucide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  vertical-align: middle;
+}
+.lucide-icon svg {
+  display: block;
+}
+.editor-toolbar-btn .lucide-icon {
+  color: inherit;
+}
+
+/* ===== Insert URL / Image Modal ===== */
+.insert-url-modal {
+  max-width: 460px;
+  text-align: left;
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(59, 130, 246, 0.12);
+}
+.insert-url-icon {
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+.insert-url-input {
+  margin-top: 4px;
+}
+.insert-url-commit {
+  min-width: 92px;
+}
+.insert-url-commit:disabled {
+  background: #334155;
+  color: #64748b;
+  cursor: not-allowed;
+}

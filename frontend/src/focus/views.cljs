@@ -753,6 +753,7 @@
     [:div.landing-page
      [:div.landing-hero
       [:div.landing-content
+       [:img.landing-logo {:src "/img/logo.svg" :alt (t :app/title)}]
        [:h1.landing-title (or (:name app-info) (t :app/title))]
        [:p.landing-description
         (or (:description app-info)
@@ -1909,7 +1910,9 @@
   (let [current-view @(rf/subscribe [:current-view])
         board-id (:id @(rf/subscribe [:current-board]))]
     [:div.nav-bar
-     [:div.nav-brand (t :app/title)]
+     [:div.nav-brand
+      [:img.nav-brand-logo {:src "/img/logo.svg" :alt (t :app/title)}]
+      [:span.nav-brand-name (t :app/title)]]
      [:div.nav-links
       [board-dropdown]
       [:a {:class (when (= current-view :board) "active")

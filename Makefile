@@ -13,6 +13,7 @@ prepare:
 
 frontend: prepare
 	cp frontend/resources/public/index.html build/static/
+	cp -r frontend/resources/public/img build/static/
 	cp frontend/resources/public/css/style.css build/static/css/
 	mkdir -p build/static/js
 	cp frontend/resources/public/js/app.js build/static/js/

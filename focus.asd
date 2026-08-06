@@ -1,6 +1,6 @@
 (defsystem :focus
   :name "focus"
-  :license "TBD"
+  :license "GPL-3.0-or-later"
   :version "0.0.1.0"
   :description "Ticket tracker"
   :depends-on (#:clack
@@ -47,6 +47,9 @@
                    :components ((:file "routes")
                                 (:file "auth")
                                 (:file "handlers")))
-                  (:module "cli"
-                   :components ((:file "commands")))
-                  (:file "main")))))
+(:module "cli"
+                    :components ((:file "commands")))
+                   (:file "main"))))
+  :build-operation "program-op"
+  :build-pathname "build/focus"
+  :entry-point "focus:main")

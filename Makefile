@@ -3,7 +3,7 @@ all: build
 .PHONY: all build clean prepare frontend dev-start dev-stop tests generate-migrations generate-static
 
 build: clean prepare frontend generate-static
-	BUILD_SUFFIX=$(BUILD_SUFFIX) sbcl --load build.lisp
+	BUILD_SUFFIX=$(BUILD_SUFFIX) sbcl --non-interactive --load build.lisp
 
 clean:
 	rm -rf build
@@ -32,7 +32,7 @@ tests:
 	sbcl --noinform --non-interactive \
 	  --eval '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' \
 	  --eval '(ql:quickload :focus-tests :silent t)' \
-	  --eval '(focus/tests:run-focus-tests)'
+	  --eval '(unless (focus/tests:run-focus-tests) (uiop:quit 1))'
 
 generate-migrations:
 	sbcl --load tools/build-migrations.lisp

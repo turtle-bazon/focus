@@ -1,3 +1,20 @@
+;;; focus — ticket tracker
+;;; Copyright (C) 2026 Azamat S. Kalimoulline <turtle@bazon.ru>
+;;;
+;;; This program is free software: you can redistribute it and/or modify
+;;; it under the terms of the GNU General Public License as published by
+;;; the Free Software Foundation, either version 3 of the License, or
+;;; (at your option) any later version.
+;;;
+;;; This program is distributed in the hope that it will be useful,
+;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;; GNU General Public License for more details.
+;;;
+;;; You should have received a copy of the GNU General Public License
+;;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;;;
+
 (in-package :focus)
 
 ;;; CLI Commands
@@ -17,12 +34,14 @@
                           (cdr (assoc :title ticket))
                           (cdr (assoc :status ticket))
                           (cdr (assoc :priority ticket))))))
-   :options (list (clingon:make-option :long "status"
+   :options (list (clingon:make-option :string
+                                       :long-name "status"
                                        :description "Filter by status"
-                                       :type :string)
-                  (clingon:make-option :long "priority"
+                                       :key :status)
+                  (clingon:make-option :string
+                                       :long-name "priority"
                                        :description "Filter by priority"
-                                       :type :string))))
+                                       :key :priority))))
 
 (defun make-create-command ()
   "Create the create command."
@@ -37,16 +56,19 @@
                                         :description description
                                         :priority priority)))
                 (format t "Created ticket ~a~%" id)))
-   :options (list (clingon:make-option :long "title"
+   :options (list (clingon:make-option :string
+                                       :long-name "title"
                                        :description "Ticket title"
-                                       :type :string
+                                       :key :title
                                        :required t)
-                  (clingon:make-option :long "description"
+                  (clingon:make-option :string
+                                       :long-name "description"
                                        :description "Ticket description"
-                                       :type :string)
-                  (clingon:make-option :long "priority"
+                                       :key :description)
+                  (clingon:make-option :string
+                                       :long-name "priority"
                                        :description "Ticket priority"
-                                       :type :string
+                                       :key :priority
                                        :initial-value "medium"))))
 
 (defun make-update-command ()
@@ -62,16 +84,19 @@
                 (if ticket
                     (format t "Updated ticket ~a~%" id)
                     (format t "Ticket not found~%"))))
-   :options (list (clingon:make-option :long "id"
+   :options (list (clingon:make-option :integer
+                                       :long-name "id"
                                        :description "Ticket ID"
-                                       :type :integer
+                                       :key :id
                                        :required t)
-                  (clingon:make-option :long "status"
+                  (clingon:make-option :string
+                                       :long-name "status"
                                        :description "New status"
-                                       :type :string)
-                  (clingon:make-option :long "priority"
+                                       :key :status)
+                  (clingon:make-option :string
+                                       :long-name "priority"
                                        :description "New priority"
-                                       :type :string))))
+                                       :key :priority))))
 
 (defun make-delete-command ()
   "Create the delete command."
@@ -82,17 +107,24 @@
               (bind ((id (clingon:getopt cmd :id)))
                 (delete-ticket id)
                 (format t "Deleted ticket ~a~%" id)))
-   :options (list (clingon:make-option :long "id"
+   :options (list (clingon:make-option :integer
+                                       :long-name "id"
                                        :description "Ticket ID"
-                                       :type :integer
+                                       :key :id
                                        :required t))))
 
 (defun make-root-command ()
-  "Create the root CLI command."
+  "Create the root CLI command. With no subcommand it runs the web server."
   (clingon:make-command
    :name "focus"
-   :description "Ticket tracker CLI"
-   :subcommands (list (make-list-command)
-                      (make-create-command)
-                      (make-update-command)
-                      (make-delete-command))))
+   :description "Ticket tracker CLI and web server"
+   :options (list (clingon:make-option
+                   :flag
+                   :long-name "rebuild-db"
+                   :description "Drop and re-create the database schema"
+                   :key :rebuild-db))
+   :handler #'start-server
+   :sub-commands (list (make-list-command)
+                       (make-create-command)
+                       (make-update-command)
+                       (make-delete-command))))

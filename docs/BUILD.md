@@ -13,12 +13,30 @@ make generate-static      # Regenerate src/static-assets.lisp from build/static/
 ```
 
 `build` runs `clean prepare frontend generate-static` then invokes
-`sbcl --load build.lisp`, which quickloads `:focus` and calls
-`sb-ext:save-lisp-and-die` to produce `build/focus`. `BUILD_SUFFIX` is
-honored for the output name.
+`sbcl --non-interactive --load build.lisp`, which quickloads `:focus` and
+calls `(asdf:make "focus")`. The system's `program-op` (`:build-operation`,
+`:build-pathname`, `:entry-point` in `focus.asd`) produces the executable
+`build/focus`. `BUILD_SUFFIX` is honored for the output name.
 
 The binary is embedded and self-contained: static is baked into the image,
 so no `static-dir` config and no runtime filesystem reads are needed.
+
+## Install as a systemd service
+
+A ready-to-use unit file lives at `deploy/focus.service`. To install:
+
+```bash
+make build
+sudo install -m 755 build/focus /usr/local/bin/focus
+sudo install -m 640 focus.conf /etc/focus.conf          # config is read from /etc/focus.conf
+sudo useradd --system --home /var/lib/focus focus        # unused system user
+sudo install -m 755 deploy/focus.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now focus
+```
+
+Adjust the `ExecStart`/`User`/config paths in `deploy/focus.service` to match
+your install layout.
 
 ## Frontend
 

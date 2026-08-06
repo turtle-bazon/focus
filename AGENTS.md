@@ -1,7 +1,8 @@
 # AGENTS.md — focus
 
 Operating rules for agents working on Focus, a Kanban-style ticket tracker
-(Common Lisp backend + ClojureScript/Reagent frontend).
+(Common Lisp backend + ClojureScript/Reagent frontend). Licensed
+GPL-3.0-or-later — see `LICENSE`; keep the SPDX header on every source file.
 
 ## Documentation
 

@@ -64,7 +64,7 @@ focus/
 ```lisp
 (defsystem :focus
   :name "focus"
-  :license "TBD"
+  :license "GPL-3.0-or-later"
   :version "0.0.1.0"
   :description "Ticket tracker"
   :depends-on (#:clack

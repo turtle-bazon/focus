@@ -1,0 +1,25 @@
+[Unit]
+Description=Focus ticket tracker
+Documentation=file:///usr/share/doc/focus
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=focus
+Group=focus
+WorkingDirectory=/var/lib/focus
+ExecStart=/usr/local/bin/focus
+# Restart on crash, back off between attempts
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadOnlyPaths=/etc/focus.conf
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,6 @@
 (defproject focus-frontend "0.0.1.0"
   :description "Focus issue tracker frontend"
+  :license {:name "GPL-3.0-or-later"}
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [org.clojure/clojurescript "1.11.60"]
                  [reagent "1.1.0"]

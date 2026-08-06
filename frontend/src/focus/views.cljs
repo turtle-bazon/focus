@@ -1231,58 +1231,61 @@
       (t :ticket/back)]
      [:h1 (str "#" (:id ticket) " " (:title ticket))]
      [:div.ticket-meta
-      [:select.status-select
-       {:value (:status ticket)
-        :style {:background-color (board-status-color (:status ticket))}
-        :on-change (fn [e]
-                     (rf/dispatch [:update-ticket-field
-                                   (:id ticket)
-                                   :status
-                                   (-> e .-target .-value)]))}
-       (doall
-        (for [s status-options]
-          ^{:key (:id s)}
-          [:option {:value (:id s)}
-           (or (:name s) (t (:name-key s)))]))]
-      [:select.priority-select
-       {:value (:priority ticket)
-        :style {:background-color (get-priority-color (:priority ticket))}
-        :on-change (fn [e]
-                     (rf/dispatch [:update-ticket-field
-                                   (:id ticket)
-                                   :priority
-                                   (-> e .-target .-value)]))}
-       [:option {:value "low"} (t :priority/low)]
-       [:option {:value "medium"} (t :priority/medium)]
-       [:option {:value "high"} (t :priority/high)]]
-      ;; Assignee selector (user or group)
-      [:div.assignee-section
-       [:label.assignee-label (t :ticket/assignee)]
-       [:select.assignee-select
-        {:value (str (:assignee_type ticket "user") ":" (or (:assignee_id ticket) ""))
+      [:div.ticket-meta-row
+       [:select.status-select
+        {:value (:status ticket)
+         :style {:background-color (board-status-color (:status ticket))}
          :on-change (fn [e]
-                      (let [val (-> e .-target .-value)]
-                        (if (or (nil? val) (= val ":") (= val "user:") (= val "group:"))
-                          (rf/dispatch [:update-ticket-field
-                                        (:id ticket)
-                                        :assignee_id nil])
-                          (let [[type id] (str/split val #":")]
-                            (rf/dispatch [:update-ticket-field
-                                          (:id ticket)
-                                          :assignee_id (js/parseInt id)])
-                            (rf/dispatch [:update-ticket-field
-                                          (:id ticket)
-                                          :assignee_type type])))))}
-        [:option {:value "user:"} (t :ticket/unassigned)]
-        (for [user users
-              :when (not (:is_deleted user))]
-          ^{:key (str "user-" (:id user))}
-          [:option {:value (str "user:" (:id user))} (:username user)])
-        (for [group groups]
-          ^{:key (str "group-" (:id group))}
-          [:option {:value (str "group:" (:id group))} (str "\uD83D\uDC65 " (:name group))])]]
+                      (rf/dispatch [:update-ticket-field
+                                    (:id ticket)
+                                    :status
+                                    (-> e .-target .-value)]))}
+        (doall
+         (for [s status-options]
+           ^{:key (:id s)}
+           [:option {:value (:id s)}
+            (or (:name s) (t (:name-key s)))]))]
+       [:select.priority-select
+        {:value (:priority ticket)
+         :style {:background-color (get-priority-color (:priority ticket))}
+         :on-change (fn [e]
+                      (rf/dispatch [:update-ticket-field
+                                    (:id ticket)
+                                    :priority
+                                    (-> e .-target .-value)]))}
+        [:option {:value "low"} (t :priority/low)]
+        [:option {:value "medium"} (t :priority/medium)]
+        [:option {:value "high"} (t :priority/high)]]]
+      ;; Assignee selector (user or group)
+      [:div.ticket-meta-row
+       [:div.assignee-section
+        [:label.assignee-label (t :ticket/assignee)]
+        [:select.assignee-select
+         {:value (str (:assignee_type ticket "user") ":" (or (:assignee_id ticket) ""))
+          :on-change (fn [e]
+                       (let [val (-> e .-target .-value)]
+                         (if (or (nil? val) (= val ":") (= val "user:") (= val "group:"))
+                           (rf/dispatch [:update-ticket-field
+                                         (:id ticket)
+                                         :assignee_id nil])
+                           (let [[type id] (str/split val #":")]
+                             (rf/dispatch [:update-ticket-field
+                                           (:id ticket)
+                                           :assignee_id (js/parseInt id)])
+                             (rf/dispatch [:update-ticket-field
+                                           (:id ticket)
+                                           :assignee_type type])))))}
+         [:option {:value "user:"} (t :ticket/unassigned)]
+         (for [user users
+               :when (not (:is_deleted user))]
+           ^{:key (str "user-" (:id user))}
+           [:option {:value (str "user:" (:id user))} (:username user)])
+         (for [group groups]
+           ^{:key (str "group-" (:id group))}
+           [:option {:value (str "group:" (:id group))} (str "\uD83D\uDC65 " (:name group))])]]]
      ;; Observers section
-     [:div.observers-section
+     [:div.ticket-meta-row
+      [:div.observers-section
       [:label.observers-label (t :ticket/observers)]
       [:div.observers-list
        (for [obs ticket-observers]
@@ -1324,7 +1327,7 @@
                                      (= (:observer_id %) (:id group)))
                                ticket-observers))]
           ^{:key (str "add-group-" (:id group))}
-          [:option {:value (str "group:" (:id group))} (str "\uD83D\uDC65 +" (:name group))])]]]]]))
+           [:option {:value (str "group:" (:id group))} (str "\uD83D\uDC65 +" (:name group))])]]]]]]))
 
 (defn comment-form [ticket-id new-comment user-id]
   (let [last-version (r/atom 0)]

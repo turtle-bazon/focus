@@ -23,19 +23,22 @@ jobs:
           - os: windows-latest
             artifact: focus-windows-x86_64
     steps:
-      - name: Install git (Linux container)
+      - name: Install system deps (Linux container)
         if: runner.os == 'Linux'
-        run: apt-get update && apt-get install -y --no-install-recommends git make
+        run: apt-get update && apt-get install -y --no-install-recommends \
+              git make pkg-config \
+              libuv1-dev \
+              libssl-dev
 
       - uses: actions/checkout@v4
 
-      - name: Install SBCL (macOS)
+      - name: Install system deps (macOS)
         if: runner.os == 'macOS'
-        run: brew install sbcl
+        run: brew install sbcl libuv
 
-      - name: Install SBCL (Windows)
+      - name: Install system deps (Windows)
         if: runner.os == 'Windows'
-        run: choco install sbcl -y --no-progress
+        run: choco install sbcl -y --no-progress && choco install libuv -y --no-progress
 
       - name: Set up Quicklisp
         shell: bash

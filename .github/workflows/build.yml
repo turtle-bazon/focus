@@ -20,8 +20,6 @@ jobs:
             artifact: focus-linux-x86_64
           - os: macos-latest
             artifact: focus-macos
-          - os: windows-latest
-            artifact: focus-windows-x86_64
     steps:
       - name: Install system deps (Linux container)
         if: runner.os == 'Linux'
@@ -42,10 +40,6 @@ jobs:
       - name: Install system deps (macOS)
         if: runner.os == 'macOS'
         run: brew install sbcl libuv
-
-      - name: Install system deps (Windows)
-        if: runner.os == 'Windows'
-        run: choco install sbcl -y --no-progress && choco install libuv -y --no-progress
 
       - name: Set up Quicklisp
         shell: bash
@@ -156,12 +150,6 @@ jobs:
           name: focus-macos
           path: macos
 
-      - name: Download Windows binary
-        uses: actions/download-artifact@v4
-        with:
-          name: focus-windows-x86_64
-          path: windows
-
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -170,7 +158,6 @@ jobs:
           mkdir -p release-assets
           find linux   -type f -name 'focus*' -exec cp {} release-assets/focus-linux-x86_64 \;
           find macos   -type f -name 'focus*' -exec cp {} release-assets/focus-macos \;
-          find windows -type f -name 'focus*' -exec cp {} release-assets/focus-windows-x86_64.exe \;
           ls -laR release-assets
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/* --clobber

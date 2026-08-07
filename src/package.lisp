@@ -19,6 +19,8 @@
   (:use :cl :local-time :iterate :cl-bazon :metabang-bind :cl-postgres)
   (:nicknames :f)
   (:export #:main
+           #:connect-db
+           #:disconnect-db
            #:migrate-up
            #:migrate-down
            #:reload-static-assets

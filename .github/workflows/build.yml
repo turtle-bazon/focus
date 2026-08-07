@@ -1,0 +1,161 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux: build inside the old-glibc SBCL image so the binary runs
+          # on older distributions (glibc is only forward-compatible).
+          - os: ubuntu-latest
+            container: ghcr.io/turtle-bazon/sbcl-bullseye-build/sbcl-bullseye:latest
+            artifact: focus-linux-x86_64
+          - os: macos-latest
+            artifact: focus-macos
+          - os: windows-latest
+            artifact: focus-windows-x86_64
+    steps:
+      - name: Install git (Linux container)
+        if: runner.os == 'Linux'
+        run: apt-get update && apt-get install -y --no-install-recommends git make
+
+      - uses: actions/checkout@v4
+
+      - name: Install SBCL (macOS)
+        if: runner.os == 'macOS'
+        run: brew install sbcl
+
+      - name: Install SBCL (Windows)
+        if: runner.os == 'Windows'
+        run: choco install sbcl -y --no-progress
+
+      - name: Set up Quicklisp
+        shell: bash
+        run: |
+          curl -fsSL https://beta.quicklisp.org/quicklisp.lisp -o "$RUNNER_TEMP/quicklisp.lisp"
+          sbcl --non-interactive --load "$RUNNER_TEMP/quicklisp.lisp" \
+            --eval '(quicklisp-quickstart:install)'
+          echo '(load "~/quicklisp/setup.lisp")' >> "$HOME/.sbclrc"
+          # Make ASDF find the project's .asd files in the checkout directory.
+          echo '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' >> "$HOME/.sbclrc"
+
+      - name: Build
+        shell: bash
+        run: make build
+
+      - name: Check glibc floor (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          echo "required GLIBC: $(objdump -T build/focus | grep -o 'GLIBC_[0-9.]*' | sort -V | uniq | tail -1)"
+          ldd build/focus
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          BIN=build/focus
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BIN=build/focus.exe
+          fi
+          "$BIN" --version
+          "$BIN" --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: build/focus*
+          if-no-files-found: error
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: focus
+          POSTGRES_PASSWORD: focus
+          POSTGRES_DB: focus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U focus"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Quicklisp
+        shell: bash
+        run: |
+          curl -fsSL https://beta.quicklisp.org/quicklisp.lisp -o "$RUNNER_TEMP/quicklisp.lisp"
+          sbcl --non-interactive --load "$RUNNER_TEMP/quicklisp.lisp" \
+            --eval '(quicklisp-quickstart:install)'
+          echo '(load "~/quicklisp/setup.lisp")' >> "$HOME/.sbclrc"
+          echo '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' >> "$HOME/.sbclrc"
+
+      - name: Run migrations
+        shell: bash
+        run: |
+          sbcl --non-interactive \
+            --eval '(ql:quickload :focus :silent t)' \
+            --eval '(focus:connect-db (list :db-host "127.0.0.1" :db-name "focus" :db-user "focus" :db-pass "focus"))' \
+            --eval '(focus:migrate-up)'
+
+      - name: Test
+        shell: bash
+        run: make tests
+
+  release:
+    needs: [build, test]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux binary
+        uses: actions/download-artifact@v4
+        with:
+          name: focus-linux-x86_64
+          path: linux
+
+      - name: Download macOS binary
+        uses: actions/download-artifact@v4
+        with:
+          name: focus-macos
+          path: macos
+
+      - name: Download Windows binary
+        uses: actions/download-artifact@v4
+        with:
+          name: focus-windows-x86_64
+          path: windows
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p release-assets
+          find linux   -type f -name 'focus*' -exec cp {} release-assets/focus-linux-x86_64 \;
+          find macos   -type f -name 'focus*' -exec cp {} release-assets/focus-macos \;
+          find windows -type f -name 'focus*' -exec cp {} release-assets/focus-windows-x86_64.exe \;
+          ls -laR release-assets
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* \
+              --title "focus $TAG" \
+              --notes "Built by CI from tag $TAG."
+          fi

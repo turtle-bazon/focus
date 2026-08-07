@@ -54,6 +54,10 @@ jobs:
           sbcl --non-interactive --load "$RUNNER_TEMP/quicklisp.lisp" \
             --eval '(quicklisp-quickstart:install)'
           echo '(load "~/quicklisp/setup.lisp")' >> "$HOME/.sbclrc"
+          # Install the bazon-public dist (cl-bazon, bazon-log, ...).
+          sbcl --non-interactive \
+            --eval '(ql:quickload :quicklisp :silent t)' \
+            --eval '(ql-dist:install-dist "http://packages.bazon.ru/ql/bazon-public.txt" :prompt nil)'
           # Make ASDF find focus.asd in the checkout (cwd) and the internal
           # cl-oauth2 copy.
           echo '(push *default-pathname-defaults* asdf:*central-registry*)' >> "$HOME/.sbclrc"
@@ -113,6 +117,9 @@ jobs:
           sbcl --non-interactive --load "$RUNNER_TEMP/quicklisp.lisp" \
             --eval '(quicklisp-quickstart:install)'
           echo '(load "~/quicklisp/setup.lisp")' >> "$HOME/.sbclrc"
+          sbcl --non-interactive \
+            --eval '(ql:quickload :quicklisp :silent t)' \
+            --eval '(ql-dist:install-dist "http://packages.bazon.ru/ql/bazon-public.txt" :prompt nil)'
           echo '(push *default-pathname-defaults* asdf:*central-registry*)' >> "$HOME/.sbclrc"
           echo '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' >> "$HOME/.sbclrc"
 

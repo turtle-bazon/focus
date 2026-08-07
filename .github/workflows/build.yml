@@ -44,7 +44,9 @@ jobs:
           sbcl --non-interactive --load "$RUNNER_TEMP/quicklisp.lisp" \
             --eval '(quicklisp-quickstart:install)'
           echo '(load "~/quicklisp/setup.lisp")' >> "$HOME/.sbclrc"
-          # Make ASDF find the project's .asd files in the checkout directory.
+          # Make ASDF find focus.asd in the checkout (cwd) and the internal
+          # cl-oauth2 copy.
+          echo '(push *default-pathname-defaults* asdf:*central-registry*)' >> "$HOME/.sbclrc"
           echo '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' >> "$HOME/.sbclrc"
 
       - name: Build
@@ -101,6 +103,7 @@ jobs:
           sbcl --non-interactive --load "$RUNNER_TEMP/quicklisp.lisp" \
             --eval '(quicklisp-quickstart:install)'
           echo '(load "~/quicklisp/setup.lisp")' >> "$HOME/.sbclrc"
+          echo '(push *default-pathname-defaults* asdf:*central-registry*)' >> "$HOME/.sbclrc"
           echo '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' >> "$HOME/.sbclrc"
 
       - name: Run migrations

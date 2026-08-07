@@ -920,6 +920,7 @@
           :on-drop (fn [e]
                      (.preventDefault e)
                      (.stopPropagation e)
+                     (reset! drag-state nil)
                      (let [ticket-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))
                            raw-idx (or (when my-marker? (:idx @drop-marker)) (count tickets))
                            dragged-pos (first (keep-indexed
@@ -962,6 +963,7 @@
                         (set! (.. e -dataTransfer -dropEffect) "none")))
       :on-drop (fn [e]
                  (.preventDefault e)
+                 (reset! drag-state nil)
                  (reset! drop-marker nil)
                  (when allowed?
                    (let [ticket-id (js/parseInt (.getData (.-dataTransfer e) "text/plain"))

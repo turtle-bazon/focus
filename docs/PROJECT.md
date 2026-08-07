@@ -12,10 +12,10 @@ real time over WebSocket.
 | Server | Clack + Wookie |
 | Database | PostgreSQL |
 | WebSocket | websocket-driver |
-| CLI | Clingon (defined in `src/cli/commands.lisp`; not wired into `main`) |
+| CLI | Clingon (`src/cli/commands.lisp`, root handler is the web server) |
 | Frontend | ClojureScript + Reagent (re-frame) |
 | Hot reload | nREPL (port 5000) |
-| Build | Makefile + `sbcl --load build.lisp` (`sb-ext:save-lisp-and-die`) |
+| Build | Makefile + ASDF `program-op` |
 | Testing | FiveAM |
 
 ## License
@@ -42,9 +42,8 @@ Kanban board view with drag-and-drop between columns. Cards show tags
 
 ## CLI Commands
 
-Defined in `src/cli/commands.lisp` but **not wired into `main`** — the web
-server entry point never constructs the root Clingon command. The documented
-interface is:
+Defined in `src/cli/commands.lisp`. Running `focus` with no subcommand
+starts the web server; the documented command interface is:
 
 ```bash
 # List tickets

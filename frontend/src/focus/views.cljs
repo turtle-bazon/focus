@@ -1138,81 +1138,119 @@
 (defn lifecycle-editor []
   (let [status-name (r/atom "")
         status-code (r/atom "")
-        status-color (r/atom "#6b7280")]
-    (fn []
-      (let [board @(rf/subscribe [:current-board])
-            statuses (or (:statuses board) [])
-            transitions (or (:transitions board) [])
-            board-id (:id board)
-            on (fn [from to] (boolean (some #(and (= (:from_code %) from)
-                                                  (= (:to_code %) to))
-                                            transitions)))]
-        (when @manage-board-open
-          [:div.modal-overlay
-           {:on-click (fn [e]
-                        (when (= (.-target e) (.-currentTarget e))
-                          (reset! manage-board-open false)))}
-           [:div.modal.lifecycle-modal
-            [:h3 (t :board/workflow) " — " (:name board)]
-            [:div.manage-statuses
-             [:h4 (t :board/statuses)]
-             (doall
-              (for [s statuses]
-                ^{:key (:id s)}
-                [:div.status-row
-                 [:span.status-dot {:style {:background-color (:color s)}}]
-                 [:span.status-code (:code s)]
-                 [:input.status-name-input
-                  {:value (:name s)
-                   :on-change (fn [e]
-                                (rf/dispatch [:update-board-status (:id s) {:name (-> e .-target .-value)}]))}]
-                 [:input.status-color-input
-                  {:type "color" :value (:color s)
-                   :on-change (fn [e]
-                                (rf/dispatch [:update-board-status (:id s) {:color (-> e .-target .-value)}]))}]
-                 [:button.status-delete-button
-                  {:on-click #(rf/dispatch [:remove-board-status (:id s)])}
-                  "\u2715"]]))
-             [:div.add-status-row
-              [:input {:placeholder (t :board/status-code) :value @status-code
-                       :on-change #(reset! status-code (-> % .-target .-value))}]
-              [:input {:placeholder (t :board/status-name) :value @status-name
-                       :on-change #(reset! status-name (-> % .-target .-value))}]
-              [:input.status-color-input {:type "color" :value @status-color
-                                          :on-change #(reset! status-color (-> % .-target .-value))}]
-              [:button.primary-button
-               {:disabled (or (empty? @status-code) (empty? @status-name))
-                :on-click (fn []
-                            (rf/dispatch [:add-board-status
-                                          {:code @status-code :name @status-name :color @status-color}])
-                            (reset! status-code "") (reset! status-name ""))}
-               (t :common/add)]]]
-            [:div.manage-transitions
-             [:h4 (t :board/transitions)]
-             [:table.transition-matrix
-              [:thead
-               [:tr
-                [:th ""]
-                (doall (for [s statuses] ^{:key (str "h" (:id s))}
-                         [:th (:code s)]))]]
-              [:tbody
+        status-color (r/atom "#6b7280")
+        board-name (r/atom "")
+        board-seeded (r/atom false)
+        esc-handler (fn [e]
+                      (when (= (.-key e) "Escape")
+                        (reset! manage-board-open false)
+                        (reset! board-seeded false)))]
+    (r/create-class
+     {:component-did-mount (fn [_]
+                             (.addEventListener js/document "keydown" esc-handler))
+      :component-will-unmount (fn [_]
+                                (.removeEventListener js/document "keydown" esc-handler))
+      :reagent-render
+      (fn []
+        (let [board @(rf/subscribe [:current-board])
+              statuses (or (:statuses board) [])
+              transitions (or (:transitions board) [])
+              board-id (:id board)
+              on (fn [from to] (boolean (some #(and (= (:from_code %) from)
+                                                    (= (:to_code %) to))
+                                              transitions)))
+              dirty? (and (seq @board-name)
+                          (not= (str/trim @board-name) (:name board)))]
+          (when @manage-board-open
+            (when (not @board-seeded)
+              (reset! board-name (or (:name board) ""))
+              (reset! board-seeded true))
+            [:div.modal-overlay
+             {:on-click (fn [e]
+                          (when (= (.-target e) (.-currentTarget e))
+                            (reset! manage-board-open false)
+                            (reset! board-seeded false)))}
+             [:div.modal.lifecycle-modal
+              [:h3 (t :board/workflow) " -- " (:name board)]
+              [:div.rename-board-row
+               [:label.rename-board-label (t :board/name)]
+               [:input.board-name-input
+                {:class (when dirty? "board-name-input--dirty")
+                 :value @board-name
+                 :placeholder (t :board/name-placeholder)
+                 :on-change (fn [e]
+                              (reset! board-name (-> e .-target .-value)))
+                 :on-key-down (fn [e]
+                                (when (= (.-key e) "Enter")
+                                  (rf/dispatch [:update-board board-id {:name (str/trim @board-name)}])
+                                  (reset! board-name (str/trim @board-name))))}]
+               [:button.primary-button.rename-save-button
+                {:disabled (or (empty? (str/trim @board-name))
+                               (= (str/trim @board-name) (:name board)))
+                 :on-click (fn []
+                             (rf/dispatch [:update-board board-id {:name (str/trim @board-name)}])
+                             (reset! board-name (str/trim @board-name)))}
+                (t :common/save)]]
+              [:div.manage-statuses
+               [:h4 (t :board/statuses)]
                (doall
                 (for [s statuses]
-                  ^{:key (str "r" (:id s))}
-                  [:tr
-                   [:td (:code s)]
-                   (doall
-                    (for [t statuses]
-                      ^{:key (str (:id s) "-" (:id t))}
-                      [:td
-                       [:input {:type "checkbox"
-                                :checked (on (:code s) (:code t))
-                                :disabled (= (:code s) (:code t))
-                                :on-change (fn [_]
-                                             (rf/dispatch [:toggle-board-transition (:code s) (:code t)]))}]]))]))]]
-            [:div.modal-actions
-             [:button.primary-button {:on-click #(reset! manage-board-open false)}
-              (t :common/done)]]]]])))))
+                  ^{:key (:id s)}
+                  [:div.status-row
+                   [:span.status-dot {:style {:background-color (:color s)}}]
+                   [:span.status-code (:code s)]
+                   [:input.status-name-input
+                    {:value (:name s)
+                     :on-change #(rf/dispatch [:update-board-status (:id s) {:name (-> % .-target .-value)}])}]
+                   [:input.status-color-input
+                    {:type "color" :value (:color s)
+                     :on-change #(rf/dispatch [:update-board-status (:id s) {:color (-> % .-target .-value)}])}]
+                   [:button.status-delete-button
+                    {:on-click #(rf/dispatch [:remove-board-status (:id s)])}
+                    "\u2715"]]))
+               [:div.add-status-row
+                [:input {:placeholder (t :board/status-code) :value @status-code
+                         :on-change #(reset! status-code (-> % .-target .-value))}]
+                [:input {:placeholder (t :board/status-name) :value @status-name
+                         :on-change #(reset! status-name (-> % .-target .-value))}]
+                [:input.status-color-input {:type "color" :value @status-color
+                                            :on-change #(reset! status-color (-> % .-target .-value))}]
+                [:button.primary-button
+                 {:disabled (or (empty? @status-code) (empty? @status-name))
+                  :on-click (fn []
+                              (rf/dispatch [:add-board-status
+                                            {:code @status-code :name @status-name :color @status-color}])
+                              (reset! status-code "") (reset! status-name ""))}
+                 (t :common/add)]]
+              [:div.manage-transitions
+               [:h4 (t :board/transitions)]
+               [:table.transition-matrix
+                [:thead
+                 [:tr
+                  [:th ""]
+                  (doall (for [s statuses]
+                           ^{:key (str "h" (:code s))}
+                           [:th (:code s)]))]]
+                [:tbody
+                 (doall
+                  (for [s statuses]
+                    ^{:key (str "r" (:code s))}
+                    [:tr
+                     [:td (:code s)]
+                     (doall
+                      (for [c statuses]
+                       ^{:key (str (:code s) "-" (:code c))}
+                        [:td
+                         [:input {:type "checkbox"
+                                  :checked (on (:code s) (:code c))
+                                  :disabled (= (:code s) (:code c))
+                                  :on-change (fn [_]
+                                               (rf/dispatch [:toggle-board-transition (:code s) (:code c)]))}]]))]))]]
+              [:div.modal-actions
+                [:button.primary-button {:on-click (fn []
+                                                     (reset! manage-board-open false)
+                                                     (reset! board-seeded false))}
+                 (t :common/done)]]]]]])))})))
 
 (defn create-ticket-modal []
   (let [show-modal (r/atom false)

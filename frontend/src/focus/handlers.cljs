@@ -868,6 +868,17 @@
    {:db db}))
 
 (rf/reg-event-fx
+ :update-board
+ (fn [{:keys [db]} [_ id data]]
+    (api/update-board (or id (:current-board-id db)) data
+     (fn [_response]
+      (rf/dispatch [:fetch-boards])
+      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+     (fn [error]
+      (rf/dispatch [:set-error (str "Failed to update board: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
  :add-board-status
  (fn [{:keys [db]} [_ data]]
    (api/create-board-status (:current-board-id db) data

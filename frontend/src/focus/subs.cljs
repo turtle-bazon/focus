@@ -234,8 +234,13 @@
 (rf/reg-sub
  :can-manage-boards
  (fn [db _]
-   (let [role (get-in db [:auth :user :role])]
-     (or (= "admin" role) (= "group_manager" role)))))
+   (let [role (get-in db [:auth :user :role])
+         user-id (get-in db [:auth :user :id])
+         board-id (get-in db [:current-board :id])
+         owner-id (get-in db [:current-board :owner_id])]
+     (or (= "admin" role)
+         (= "group_manager" role)
+         (and board-id owner-id (= user-id owner-id))))))
 
 (rf/reg-sub
  :transition-allowed

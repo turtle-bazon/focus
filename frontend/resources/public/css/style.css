@@ -2289,6 +2289,36 @@ body {
   max-height: 90vh;
   overflow-y: auto;
 }
+.rename-board-row {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.rename-board-label {
+  flex-shrink: 0;
+  align-self: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.2;
+}
+.rename-board-row .board-name-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+.rename-board-row .board-name-input--dirty {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+.rename-save-button {
+  flex-shrink: 0;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 15px;
+}
 .manage-statuses,
 .manage-transitions {
   margin-bottom: 24px;

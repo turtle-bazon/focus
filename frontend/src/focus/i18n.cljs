@@ -52,6 +52,7 @@
     :board/activity-empty "No activity yet."
     :common/cancel "Cancel"
     :common/add "Add"
+    :common/save "Save"
     :common/done "Done"
     :common/insert "Insert"
     :editor/insert-link-title "Insert Link"

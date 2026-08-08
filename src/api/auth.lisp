@@ -203,9 +203,11 @@ Returns (values email name username picture) or signals an error."
         (list "{\"message\":\"Logged out\"}")))
 
 (defun handle-app-info (env)
-  "GET /api/app/info — return app name and description (public)."
+  "GET /api/app/info — return app name, description, version, and OAuth2
+  status (public)."
   (declare (ignore env))
   (json-response `(:name ,(config->app-name *config*)
                    :description ,(config->app-description *config*)
+                   :version ,(asdf:component-version (asdf:find-system :focus))
                    :oauth2-configured ,(and *oauth2-client*
                                             (plusp (length (cl-oauth2:client-id *oauth2-client*)))))))

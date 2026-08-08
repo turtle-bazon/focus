@@ -20,6 +20,37 @@
             [focus.api :as api]
             [focus.i18n :as i18n]))
 
+(defn- total-key [status priority]
+  (str status "|" (or priority "medium")))
+
+(def ^:private in-flight-pages (atom #{}))
+
+(defn- page-request [key status priority page params]
+  (when-not (contains? @in-flight-pages key)
+    (swap! in-flight-pages conj key)
+    (api/fetch-tickets params
+     (fn [response]
+       (swap! in-flight-pages disj key)
+       (rf/dispatch [:set-priority-load key status priority page
+                     (:tickets response) (:total response)]))
+     (fn [error]
+       (swap! in-flight-pages disj key)
+       (rf/dispatch [:set-error (str "Failed to load column: " error)])))))
+
+(defn- adjust-ticket-total [db status priority delta]
+  (let [key (total-key status priority)]
+    (update-in db [:ticket-total key]
+               (fn [n] (max 0 (+ (or n 0) delta))))))
+
+(defn- move-ticket-total [db old-status old-priority new-status new-priority]
+  (let [old-key (total-key old-status old-priority)
+        new-key (total-key new-status new-priority)]
+    (if (= old-key new-key)
+      db
+      (-> db
+          (adjust-ticket-total old-status old-priority -1)
+          (adjust-ticket-total new-status new-priority +1)))))
+
 (rf/reg-event-db
  :initialize-db
  (fn [_ _]
@@ -48,6 +79,8 @@
     :all-activity []
     :all-activity-total 0
     :all-activity-loading false
+    :ticket-page {}
+    :ticket-total {}
     :search-query ""
     :loading true
     :error nil
@@ -134,16 +167,70 @@
    (assoc db :error nil)))
 
 (rf/reg-event-fx
+ :load-priority
+ (fn [{:keys [db]} [_ status priority limit]]
+   (let [key (str status "|" priority)
+         page (max 1 (inc (get-in db [:ticket-page key] 0)))
+         params {:board_id (:current-board-id db)
+                 :status status
+                 :priority priority
+                 :limit (or limit 20)
+                 :page page}]
+     (page-request key status priority page params)
+     {:db db})))
+
+(rf/reg-event-fx
+ :load-initial-columns
+ (fn [{:keys [db]} [_ statuses]]
+   (let [priorities ["high" "medium" "low"]]
+     (doseq [status statuses]
+       (doseq [priority priorities]
+         (let [key (str (:code status) "|" priority)]
+           (when-not (contains? @in-flight-pages key)
+             (page-request key (:code status) priority 1
+                           {:board_id (:current-board-id db)
+                            :status (:code status)
+                            :priority priority
+                            :limit (:load_count status)
+                            :page 1}))))))
+   {:db (assoc db :ticket-page {} :ticket-total {})}))
+
+(rf/reg-event-db
+ :set-priority-load
+ (fn [db [_ key status priority page tickets total]]
+   (let [existing (:tickets db)
+         other (remove #(and (= (:status %) status)
+                             (= (:priority %) priority))
+                       existing)
+         same (filter #(and (= (:status %) status)
+                            (= (:priority %) priority))
+                      existing)
+         new-ids (set (map :id tickets))
+         same-keep (remove #(contains? new-ids (:id %)) same)
+         merged (vec (concat other same-keep tickets))]
+     (assoc db
+            :tickets merged
+            :ticket-page (assoc (:ticket-page db) key page)
+            :ticket-total (assoc (:ticket-total db) key total)
+            :loading false :error nil))))
+
+(rf/reg-event-fx
+ :load-all-columns
+ (fn [{:keys [db]} [_ statuses]]
+   (rf/dispatch [:load-initial-columns statuses])
+   {:db db}))
+
+(rf/reg-event-fx
  :fetch-tickets
  (fn [{:keys [db]} [_ params]]
    (let [params (cond-> (or params {})
-                 (:current-board-id db) (assoc :board_id (:current-board-id db)))]
+                  (:current-board-id db) (assoc :board_id (:current-board-id db)))]
      (api/fetch-tickets params
       (fn [response]
         (rf/dispatch [:set-tickets (:tickets response)]))
       (fn [error]
         (rf/dispatch [:set-error (str "Failed to fetch tickets: " error)]))))
-   {:db db}))
+    {:db db}))
 
 (rf/reg-event-db
  :set-tickets
@@ -178,14 +265,17 @@
    {:db (assoc db :loading true)}))
 
 (rf/reg-event-fx
- :update-ticket-status
- (fn [{:keys [db]} [_ id status]]
-   (let [tickets (:tickets db)
-         updated (mapv (fn [i]
-                         (if (= (:id i) id)
-                             (assoc i :status status)
-                             i))
-                       tickets)]
+:update-ticket-status
+  (fn [{:keys [db]} [_ id status]]
+    (let [tickets (:tickets db)
+          target (first (filter #(= (:id %) id) tickets))
+          old-status (:status target)
+          old-priority (:priority target)
+          updated (mapv (fn [i]
+                          (if (= (:id i) id)
+                              (assoc i :status status)
+                              i))
+                        tickets)]
      (api/update-ticket id {:status status}
       (fn [_]
         (api/fetch-activity id {:limit 20 :offset 0}
@@ -194,14 +284,18 @@
       (fn [error]
         (rf/dispatch [:set-error (str "Failed to update ticket: " error)])
         (rf/dispatch [:fetch-tickets {}])))
-     {:db (assoc db :tickets updated)})))
+     {:db (-> db
+              (move-ticket-total old-status old-priority status old-priority)
+              (assoc :tickets updated))})))
 
 (rf/reg-event-fx
- :reorder-ticket
- (fn [{:keys [db]} [_ id status priority position]]
-   (let [tickets (:tickets db)
-         moved (first (filter #(= (:id %) id) tickets))
-         moved-with-status (assoc moved :status status :priority priority)
+:reorder-ticket
+  (fn [{:keys [db]} [_ id status priority position]]
+    (let [tickets (:tickets db)
+          moved (first (filter #(= (:id %) id) tickets))
+          old-status (:status moved)
+          old-priority (:priority moved)
+          moved-with-status (assoc moved :status status :priority priority)
          without (vec (remove #(= (:id %) id) tickets))
          same-group (filter #(and (= (:status %) status) (= (:priority %) priority)) without)
          other (vec (remove #(and (= (:status %) status) (= (:priority %) priority)) without))
@@ -223,29 +317,36 @@
       (fn [error]
         (rf/dispatch [:set-error (str "Failed to reorder ticket: " error)])
         (rf/dispatch [:fetch-tickets {}])))
-     {:db (assoc db
-                 :tickets (vec all-tickets)
-                 :current-ticket (or new-current current-ticket))})))
+{:db (-> db
+               (move-ticket-total old-status old-priority status priority)
+               (assoc :tickets (vec all-tickets)
+                      :current-ticket (or new-current current-ticket)))})))
 
 (rf/reg-event-fx
- :update-ticket-field
- (fn [{:keys [db]} [_ id field value]]
-   (let [tickets (:tickets db)
-         updated-tickets (mapv (fn [t] (if (= (:id t) id) (assoc t field value) t)) tickets)
-         current-ticket (:current-ticket db)
-         new-current (when (and current-ticket (= (:id current-ticket) id))
-                       (assoc current-ticket field value))]
-       (api/update-ticket id {field value}
-        (fn [_]
-          (api/fetch-activity id {:limit 20 :offset 0}
-           (fn [resp] (rf/dispatch [:set-activity-initial (:activity resp) (:total resp)]))
-           (fn [_])))
-       (fn [error]
-         (rf/dispatch [:set-error (str "Failed to update ticket: " error)])
-         (rf/dispatch [:fetch-tickets {}])))
-     {:db (assoc db
-                 :tickets updated-tickets
-                 :current-ticket (or new-current current-ticket))})))
+:update-ticket-field
+  (fn [{:keys [db]} [_ id field value]]
+    (let [tickets (:tickets db)
+          target (first (filter #(= (:id %) id) tickets))
+          old-status (:status target)
+          old-priority (:priority target)
+          new-status (if (= field :status) value old-status)
+          new-priority (if (= field :priority) value old-priority)
+          updated-tickets (mapv (fn [t] (if (= (:id t) id) (assoc t field value) t)) tickets)
+          current-ticket (:current-ticket db)
+          new-current (when (and current-ticket (= (:id current-ticket) id))
+                        (assoc current-ticket field value))]
+        (api/update-ticket id {field value}
+         (fn [_]
+           (api/fetch-activity id {:limit 20 :offset 0}
+            (fn [resp] (rf/dispatch [:set-activity-initial (:activity resp) (:total resp)]))
+            (fn [_])))
+        (fn [error]
+          (rf/dispatch [:set-error (str "Failed to update ticket: " error)])
+          (rf/dispatch [:fetch-tickets {}])))
+     {:db (-> db
+              (move-ticket-total old-status old-priority new-status new-priority)
+              (assoc :tickets updated-tickets
+                     :current-ticket (or new-current current-ticket)))})))
 
 (rf/reg-event-fx
  :delete-ticket
@@ -522,17 +623,22 @@
      (assoc db :tickets (vec updated-tickets)))))
 
 (rf/reg-event-db
- :add-ticket
- (fn [db [_ ticket]]
-   (let [tickets (:tickets db)
-         without (vec (remove #(= (:id %) (:id ticket)) tickets))]
-     (assoc db :tickets (vec (cons ticket without))))))
+:add-ticket
+  (fn [db [_ ticket]]
+    (let [tickets (:tickets db)
+          without (vec (remove #(= (:id %) (:id ticket)) tickets))]
+      (-> db
+          (adjust-ticket-total (:status ticket) (:priority ticket) 1)
+          (assoc :tickets (vec (cons ticket without)))))))
 
 (rf/reg-event-db
- :remove-ticket
- (fn [db [_ ticket-id]]
-   (update db :tickets (fn [tickets]
-                         (vec (remove #(= (:id %) ticket-id) tickets))))))
+:remove-ticket
+  (fn [db [_ ticket-id]]
+    (let [target (first (filter #(= (:id %) ticket-id) (:tickets db)))]
+      (-> db
+          (adjust-ticket-total (:status target) (:priority target) -1)
+          (update :tickets (fn [tickets]
+                             (vec (remove #(= (:id %) ticket-id) tickets))))))))
 
 (rf/reg-event-db
  :add-comment
@@ -820,13 +926,13 @@
    (let [id (or board-id (:current-board-id db)
                 (:id (first (:boards db))))]
      (if id
-       (api/fetch-board id
+(api/fetch-board id
         (fn [response]
           (rf/dispatch [:set-current-board response])
-          (rf/dispatch [:fetch-tickets {}]))
-        (fn [error]
-          (rf/dispatch [:set-error (str "Failed to fetch board: " error)])))
-       (rf/dispatch [:fetch-tickets {}]))
+          (rf/dispatch [:load-all-columns (:statuses response)]))
+         (fn [error]
+           (rf/dispatch [:set-error (str "Failed to fetch board: " error)])))
+        (rf/dispatch [:fetch-tickets {}]))
      {:db (assoc db :current-board-id id)})))
 
 (rf/reg-event-fx

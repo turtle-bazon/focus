@@ -43,7 +43,10 @@
     (if content
         (list 200
               `(:content-type ,(guess-content-type path)
-                :content-length ,(length content))
+                :content-length ,(length content)
+                :cache-control ,(if (string= rel-path "index.html")
+                                    "no-cache"
+                                    "max-age=3600"))
               (list content))
         nil)))
 

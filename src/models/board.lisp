@@ -66,11 +66,11 @@
 
 (defun seed-board-lifecycle (board-id)
   "Seed a board with the default status column set and allowed transitions."
-  (let ((statuses '(("backlog" "Backlog" "#6b7280" 0)
-                    ("open" "Open" "#3b82f6" 1)
-                    ("in_progress" "In Progress" "#f59e0b" 2)
-                    ("review" "Review" "#8b5cf6" 3)
-                    ("done" "Done" "#10b981" 4)))
+  (let ((statuses '(("backlog" "Backlog" "#6b7280" 0 20)
+                    ("open" "Open" "#3b82f6" 1 20)
+                    ("in_progress" "In Progress" "#f59e0b" 2 20)
+                    ("review" "Review" "#8b5cf6" 3 20)
+                    ("done" "Done" "#10b981" 4 5)))
         (transitions '(("backlog" "open")
                        ("open" "in_progress")
                        ("open" "done")
@@ -79,11 +79,11 @@
                        ("review" "done")
                        ("review" "in_progress")
                        ("done" "open"))))
-    (iter (for (code name color position) in statuses)
+    (iter (for (code name color position load-count) in statuses)
       (db-query
-       "INSERT INTO board_statuses (board_id, code, name, color, position)
-        VALUES ($1, $2, $3, $4, $5)"
-       board-id code name color position))
+       "INSERT INTO board_statuses (board_id, code, name, color, position, load_count)
+        VALUES ($1, $2, $3, $4, $5, $6)"
+       board-id code name color position load-count))
     (iter (for (from-code to-code) in transitions)
       (db-query
        "INSERT INTO board_transitions (board_id, from_code, to_code)
@@ -155,27 +155,28 @@
 (defun list-board-statuses (board-id)
   "List statuses for a board, ordered by position."
   (pg-query-params
-   "SELECT id, board_id, code, name, color, position
+   "SELECT id, board_id, code, name, color, position, load_count
     FROM board_statuses WHERE board_id = $1
     ORDER BY position ASC, id ASC"
    (list board-id)))
 
-(defun create-board-status (board-id code name &key color position)
+(defun create-board-status (board-id code name &key color position load-count)
   "Create a status in a board. Returns the new status ID."
-  (if position
-      (db-query
-       "INSERT INTO board_statuses (board_id, code, name, color, position)
-        VALUES ($1, $2, $3, $4, $5) RETURNING id"
-       board-id code name (or color "#6b7280") position :single)
-      (db-query
-       "INSERT INTO board_statuses (board_id, code, name, color, position)
-        VALUES ($1, $2, $3, $4,
-                (SELECT COALESCE(MAX(position) + 1, 0)
-                 FROM board_statuses WHERE board_id = $1))
-        RETURNING id"
-       board-id code name (or color "#6b7280") :single)))
+  (let ((load-count (or load-count 20)))
+    (if position
+        (db-query
+         "INSERT INTO board_statuses (board_id, code, name, color, position, load_count)
+          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id"
+         board-id code name (or color "#6b7280") position load-count :single)
+        (db-query
+         "INSERT INTO board_statuses (board_id, code, name, color, position, load_count)
+          VALUES ($1, $2, $3, $4,
+                  (SELECT COALESCE(MAX(position) + 1, 0)
+                   FROM board_statuses WHERE board_id = $1), $5)
+          RETURNING id"
+         board-id code name (or color "#6b7280") load-count :single))))
 
-(defun update-board-status (board-id status-id &key name color position)
+(defun update-board-status (board-id status-id &key name color position load-count)
   "Update a status's display fields."
   (let ((sets '())
         (params '())
@@ -192,6 +193,10 @@
       (incf i)
       (push (format nil "position = $~d" i) sets)
       (push position params))
+    (when load-count
+      (incf i)
+      (push (format nil "load_count = $~d" i) sets)
+      (push load-count params))
     (when sets
       (let* ((p0 i)
              (all-params (append (reverse params)

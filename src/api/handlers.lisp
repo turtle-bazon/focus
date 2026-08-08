@@ -160,8 +160,12 @@
                                 :assignee-id assignee-id
                                 :board-id board-id
                                 :page page
-                                :limit limit)))
-    (json-response `(:tickets ,tickets))))
+                                :limit limit))
+         (total (count-tickets :status status
+                               :priority priority
+                               :assignee-id assignee-id
+                               :board-id board-id)))
+    (json-response `(:tickets ,tickets :total ,total))))
 
 (defun handle-get-ticket (env)
   "GET /api/tickets/:id"
@@ -798,13 +802,15 @@
                  (code (json-assoc :code body))
                  (name (json-assoc :name body))
                  (color (json-assoc :color body))
-                 (position (json-assoc :position body)))
+                 (position (json-assoc :position body))
+                 (load-count (json-assoc :load_count body)))
             (unless (and code name)
               (return-from handle-create-board-status
                 (error-response "code and name are required")))
             (json-response `(:id ,(create-board-status id code name
                                                        :color color
-                                                       :position (as-int position)))
+                                                       :position (as-int position)
+                                                       :load-count (as-int load-count)))
                            201)))
         (error-response "Invalid board ID"))))
 
@@ -820,11 +826,13 @@
           (bind ((body (parse-json-body env))
                  (name (json-assoc :name body))
                  (color (json-assoc :color body))
-                 (position (json-assoc :position body)))
+                 (position (json-assoc :position body))
+                 (load-count (json-assoc :load_count body)))
             (update-board-status board-id status-id
                                  :name name
                                  :color color
-                                 :position (as-int position))
+                                 :position (as-int position)
+                                 :load-count (as-int load-count))
             (json-response `(:message "Status updated"))))
         (error-response "Invalid board or status ID"))))
 

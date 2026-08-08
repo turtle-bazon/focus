@@ -773,8 +773,7 @@
        [:img.landing-logo {:src "/img/logo.svg" :alt (t :app/title)}]
        [:h1.landing-title (or (:name app-info) (t :app/title))]
        [:p.landing-description
-        (or (:description app-info)
-            (t :app/description))]
+        (t :app/description)]
        (if (:oauth2_configured app-info)
          [:a.login-button {:href "/api/auth/login"}
           (t :auth/sign-in)]
@@ -782,7 +781,10 @@
           [:p (t :auth/not-configured)]
           [:p (t :auth/config-hint)]])]]
      [:div.landing-footer
-      [:p (t :app/version)]]]))
+      [:p.landing-version (if (:version app-info)
+                            (str (or (:name app-info) (t :app/title))
+                                 " v" (:version app-info))
+                            (t :app/version))]]]))
 
 ;;; Board components
 
@@ -949,6 +951,9 @@
         tickets-by-status @(rf/subscribe [:tickets-by-status])
         tickets (get tickets-by-status (:id status) [])
         by-priority (into {} (map (fn [[p t]] [p t]) (group-by :priority tickets)))
+        total-by-priority @(rf/subscribe [:ticket-totals])
+        prio-total (fn [p] (get total-by-priority (str (:id status) "|" p) 0))
+        status-total (reduce + (map prio-total all-priorities))
         dragged @drag-state
         allowed? (or (nil? dragged)
                      (= (:status dragged) (:id status))
@@ -975,17 +980,26 @@
      [:div.column-header
       {:style {:border-bottom-color (:color status)}}
       [:span.column-title (or (:name status) (t (:name-key status)))]
-      [:span.column-count (count tickets)]]
+      [:span.column-count (str status-total)]]
      [:div.column-cards
       (doall
        (for [priority (sort-by #(get priority-order % 1) all-priorities)]
          ^{:key priority}
-         [priority-group (:id status) priority (get by-priority priority []) allowed?]))]]))
+         [:div.priority-block
+          [priority-group (:id status) priority (get by-priority priority []) allowed?]
+          (when (> (prio-total priority)
+                   (count (get by-priority priority [])))
+            [:button.column-load-more
+             {:on-click #(rf/dispatch [:load-priority (:id status) priority (:load-count status)])}
+             (str (t :board/load-more) " ("
+                  (- (prio-total priority) (count (get by-priority priority []))) ")")])]))]]))
 
 (defn board-columns []
   (let [board-statuses @(rf/subscribe [:board-statuses])]
     (if (seq board-statuses)
-      (map (fn [s] {:id (:code s) :name (:name s) :color (:color s)}) board-statuses)
+      (map (fn [s] {:id (:code s) :name (:name s) :color (:color s)
+                    :load-count (:load_count s)})
+           board-statuses)
       statuses)))
 
 (defn board-view []
@@ -1207,6 +1221,12 @@
                    [:input.status-color-input
                     {:type "color" :value (:color s)
                      :on-change #(rf/dispatch [:update-board-status (:id s) {:color (-> % .-target .-value)}])}]
+                   [:input.status-load-input
+                    {:type "number" :min "1" :value (:load_count s)
+                     :title (t :board/load-count)
+                     :on-change #(let [v (js/parseInt (-> % .-target .-value) 10)]
+                           (when (pos? v)
+                             (rf/dispatch [:update-board-status (:id s) {:load_count v}])))}]
                    [:button.status-delete-button
                     {:on-click #(rf/dispatch [:remove-board-status (:id s)])}
                     "\u2715"]]))

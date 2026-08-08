@@ -138,6 +138,29 @@ body {
   gap: 12px;
 }
 
+.column-load-more {
+  margin-top: 8px;
+  padding: 8px 12px;
+  width: 100%;
+  background-color: transparent;
+  border: 1px dashed #334155;
+  border-radius: 8px;
+  color: #94a3b8;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.priority-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.column-load-more:hover {
+  border-color: #3b82f6;
+  color: #60a5fa;
+}
+
 .ticket-card {
   background-color: #0f172a;
   border: 1px solid #334155;
@@ -2365,6 +2388,15 @@ body {
   border-radius: 6px;
   background: transparent;
   cursor: pointer;
+}
+.status-load-input {
+  width: 64px;
+  padding: 6px 8px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background-color: #0f172a;
+  color: #e2e8f0;
+  font-size: 14px;
 }
 .status-delete-button {
   background: transparent;

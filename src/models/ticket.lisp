@@ -55,7 +55,7 @@
 
 (defun list-tickets (&key status priority assignee-id board-id (page 1) (limit 20))
   "List tickets with optional filters. Returns list of plists."
-  (let ((page (or page 1))
+  (let ((page (max 1 (or page 1)))
         (limit (or limit 20))
         (conditions '())
         (params '()))
@@ -87,6 +87,30 @@
                (+ 1 (length params))
                (+ 2 (length params)))
        all-params))))
+
+(defun count-tickets (&key status priority assignee-id board-id)
+  "Count tickets matching optional filters. Returns integer."
+  (let ((conditions '())
+        (params '()))
+    (when status
+      (push "status = $1" conditions)
+      (push status params))
+    (when priority
+      (push (format nil "priority = $~d" (+ 1 (length params))) conditions)
+      (push priority params))
+    (when assignee-id
+      (push (format nil "assignee_id = $~d" (+ 1 (length params))) conditions)
+      (push assignee-id params))
+    (when board-id
+      (push (format nil "board_id = $~d" (+ 1 (length params))) conditions)
+      (push board-id params))
+    (let ((where (if conditions
+                    (format nil "WHERE ~{~a~^ AND ~}" (reverse conditions))
+                    "")))
+      (let ((rows (pg-query-params
+                   (format nil "SELECT COUNT(*) AS total FROM tickets ~a" where)
+                   (reverse params))))
+        (or (getf (car rows) :total) 0)))))
 
 (defun update-ticket (id &key title description status priority assignee-id assignee-type color board-id)
   "Update ticket fields. Returns the updated ticket."

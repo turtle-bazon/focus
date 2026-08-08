@@ -321,4 +321,8 @@ WHERE NOT EXISTS (
 CREATE INDEX IF NOT EXISTS idx_users_is_deleted ON users(is_deleted);
 "
 )
+    ("0022-0022-board-status-load-coun"
+     :up "ALTER TABLE board_statuses ADD COLUMN IF NOT EXISTS load_count INTEGER NOT NULL DEFAULT 20;
+UPDATE board_statuses SET load_count = 5 WHERE code = 'done';"
+)
 ))

@@ -1,0 +1,1 @@
+ALTER TABLE board_statuses DROP COLUMN IF EXISTS load_count;

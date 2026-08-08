@@ -232,6 +232,18 @@
    (:transitions (:current-board db))))
 
 (rf/reg-sub
+ :ticket-totals
+ (fn [db _]
+   (:ticket-total db)))
+
+(rf/reg-sub
+ :ticket-total
+ (fn [_ _]
+   (rf/subscribe [:ticket-totals]))
+ (fn [totals [_ status priority]]
+   (get totals (str status "|" priority) 0)))
+
+(rf/reg-sub
  :can-manage-boards
  (fn [db _]
    (let [role (get-in db [:auth :user :role])

@@ -165,7 +165,7 @@
                                :priority priority
                                :assignee-id assignee-id
                                :board-id board-id)))
-    (json-response `(:tickets ,tickets :total ,total))))
+    (json-response `(:tickets ,(or tickets (make-array 0)) :total ,total))))
 
 (defun handle-get-ticket (env)
   "GET /api/tickets/:id"

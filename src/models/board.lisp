@@ -129,6 +129,13 @@
              (= (or (getf board :owner-id) 0) user-id)
              (manager-p user-id)))))
 
+(defun user-can-view-board (board-id user-id)
+  "True if the user may view a board (default board, member, owner, or manager).
+   With no user-id, only the default board is visible."
+  (when (and board-id user-id)
+    (find board-id (list-visible-boards user-id)
+          :key (lambda (b) (getf b :id)))))
+
 ;;; Board membership
 
 (defun list-board-members (board-id)

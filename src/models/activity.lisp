@@ -171,3 +171,18 @@
                    FROM activity WHERE id = $1"
                   id :alists)))
     (when results (alist-to-plist (car results)))))
+
+(defun get-activity-with-context (id)
+  "Get activity by ID joined with its ticket and board for live delivery.
+   Returns plist or nil."
+  (let ((results (pg-query-params
+                  "SELECT a.id, a.ticket_id, a.user_id, a.action, a.details,
+                          a.created_at, t.title AS ticket_title,
+                          t.status AS ticket_status, b.id AS board_id,
+                          b.name AS board_name
+                   FROM activity a
+                   JOIN tickets t ON t.id = a.ticket_id
+                   JOIN boards b ON b.id = t.board_id
+                   WHERE a.id = $1"
+                  (list id))))
+    (when results (car results))))

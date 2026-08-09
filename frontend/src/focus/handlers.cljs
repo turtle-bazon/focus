@@ -254,14 +254,15 @@
  (fn [{:keys [db]} [_ data]]
  (api/create-ticket (assoc data :board_id (:current-board-id db))
      (fn [response]
-       (rf/dispatch [:add-ticket {:id (:id response)
-                                 :title (:title data)
-                                 :description (:description data)
-                                 :priority (:priority data)
-                                 :assignee_id (:assignee_id data)
-                                 :assignee_type (:assignee_type data)
-                                 :board_id (:current-board-id db)
-                                 :status "open"}]))
+(rf/dispatch [:add-ticket {:id (:id response)
+                                  :title (:title data)
+                                  :description (:description data)
+                                  :priority (:priority data)
+                                  :assignee_id (:assignee_id data)
+                                  :assignee_type (:assignee_type data)
+                                  :board_id (:current-board-id db)
+                                  :status "open"}
+                     (:current-board-id db)]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to create ticket: " error)])))
    {:db db}))
@@ -625,32 +626,68 @@
 
 (rf/reg-event-db
  :ws-update-ticket
- (fn [db [_ ticket]]
-   (let [tickets (:tickets db)
-         updated-tickets (map (fn [i]
-                                (if (= (:id i) (:id ticket))
-                                    ticket
-                                    i))
-                              tickets)]
-     (assoc db :tickets (vec updated-tickets)))))
+ (fn [db [_ ticket board-id]]
+   (if (and board-id (not= board-id (:current-board-id db)))
+     db
+     (let [existing (:tickets db)
+           old (first (filter #(= (:id %) (:id ticket)) existing))
+           old-status (:status old)
+           old-priority (:priority old)
+           new-status (:status ticket)
+           new-priority (:priority ticket)
+           updated-tickets (map (fn [i]
+                                  (if (= (:id i) (:id ticket))
+                                      ticket
+                                      i))
+                                existing)]
+       (-> db
+           (move-ticket-total old-status old-priority new-status new-priority)
+           (assoc :tickets (vec updated-tickets)))))))
 
 (rf/reg-event-db
-:add-ticket
-  (fn [db [_ ticket]]
-    (let [tickets (:tickets db)
-          without (vec (remove #(= (:id %) (:id ticket)) tickets))]
-      (-> db
-          (adjust-ticket-total (:status ticket) (:priority ticket) 1)
-          (assoc :tickets (vec (cons ticket without)))))))
+ :ws-add-activity
+ (fn [db [_ activity]]
+   (let [board-id (:board_id activity)
+         ticket-id (:ticket_id activity)
+         current-board (:current-board-id db)
+         add-dedup (fn [items item]
+                     (if (some #(= (:id %) (:id item)) items)
+                       items
+                       (vec (cons item items))))]
+     (cond-> db
+       (and (seq (:board-activity db)) (= board-id current-board))
+       (-> (update :board-activity add-dedup activity)
+           (update :board-activity-total inc))
+       (seq (:all-activity db))
+       (-> (update :all-activity add-dedup activity)
+           (update :all-activity-total inc))
+       (and (seq (:activity db)) (= ticket-id (:id (:current-ticket db))))
+       (-> (update :activity add-dedup activity)
+           (update :activity-total inc))))))
 
 (rf/reg-event-db
-:remove-ticket
-  (fn [db [_ ticket-id]]
-    (let [target (first (filter #(= (:id %) ticket-id) (:tickets db)))]
-      (-> db
-          (adjust-ticket-total (:status target) (:priority target) -1)
-          (update :tickets (fn [tickets]
-                             (vec (remove #(= (:id %) ticket-id) tickets))))))))
+ :add-ticket
+ (fn [db [_ ticket board-id]]
+   (if (or (and board-id (not= board-id (:current-board-id db)))
+           (some #(= (:id %) (:id ticket)) (:tickets db)))
+     db
+     (let [tickets (:tickets db)
+           without (vec (remove #(= (:id %) (:id ticket)) tickets))]
+       (-> db
+           (adjust-ticket-total (:status ticket) (:priority ticket) 1)
+           (assoc :tickets (vec (cons ticket without))))))))
+
+(rf/reg-event-db
+ :remove-ticket
+ (fn [db [_ ticket-id board-id]]
+   (if (or (and board-id (not= board-id (:current-board-id db)))
+           (not (some #(= (:id %) ticket-id) (:tickets db))))
+     db
+     (let [target (first (filter #(= (:id %) ticket-id) (:tickets db)))]
+       (-> db
+           (adjust-ticket-total (:status target) (:priority target) -1)
+           (update :tickets (fn [tickets]
+                              (vec (remove #(= (:id %) ticket-id) tickets)))))))))
 
 (rf/reg-event-db
  :add-comment

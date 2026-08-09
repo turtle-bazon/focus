@@ -26,10 +26,11 @@
   (let [data (-> event .-data js/JSON.parse (js->clj :keywordize-keys true))
         msg-type (keyword (:type data))]
     (case msg-type
-      :ticket-update (rf/dispatch [:ws-update-ticket (:data data)])
-      :ticket-created (rf/dispatch [:add-ticket (:data data)])
-      :ticket-deleted (rf/dispatch [:remove-ticket (:id data)])
+      :ticket-update (rf/dispatch [:ws-update-ticket (:data data) (:board_id data)])
+      :ticket-created (rf/dispatch [:add-ticket (:data data) (:board_id data)])
+      :ticket-deleted (rf/dispatch [:remove-ticket (:id data) (:board_id data)])
       :comment-created (rf/dispatch [:add-comment (:data data) (:ticket-id data)])
+      :activity-created (rf/dispatch [:ws-add-activity (:data data)])
       (println "Unknown message type:" msg-type))))
 
 (defn on-open [_]

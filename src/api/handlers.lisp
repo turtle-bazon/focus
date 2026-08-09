@@ -133,10 +133,13 @@
       (getf db-session :user-id))))
 
 (defun log-activity (ticket-id user-id action &key details)
-  "Log an activity entry. Silently ignores errors."
+  "Log an activity entry and broadcast it live. Silently ignores errors.
+   Returns the activity ID or NIL."
   (when user-id
     (handler-case
-        (create-activity ticket-id user-id action :details details)
+        (let ((id (create-activity ticket-id user-id action :details details)))
+          (ws-broadcast-activity-created (get-activity-with-context id))
+          id)
       (error (e)
         (bl:warn "Failed to log activity: ~a" e)))))
 
@@ -313,10 +316,13 @@
   "DELETE /api/tickets/:id"
   (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)$")))
     (if id
-        (progn
-          (delete-ticket id)
-          (ws-broadcast-ticket-deleted id)
-          (json-response `(:message "Ticket deleted")))
+        (let ((ticket (get-ticket-by-id id)))
+          (if ticket
+              (progn
+                (delete-ticket id)
+                (ws-broadcast-ticket-deleted ticket)
+                (json-response `(:message "Ticket deleted")))
+              (error-response "Ticket not found" 404)))
         (error-response "Invalid ticket ID"))))
 
 ;;; Comment handlers
@@ -361,7 +367,12 @@
             (add-ticket-observer ticket-id
                                  "user"
                                  (if (stringp user-id) (parse-integer user-id) user-id))
-            (ws-broadcast-comment-created comment ticket-id)
+            (ws-broadcast-comment-created comment ticket-id
+                                          (getf (get-ticket-by-id ticket-id) :board-id))
+            (log-activity ticket-id
+                          (if (stringp user-id) (parse-integer user-id) user-id)
+                          "comment_added"
+                          :details `((:user_id . ,user-id) (:body . ,comment-body)))
             (json-response `(:id ,id) 201)))
         (error-response "Invalid ticket ID"))))
 

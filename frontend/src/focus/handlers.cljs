@@ -69,6 +69,7 @@
     :boards []
     :current-board-id nil
     :current-board nil
+    :loaded-board-id nil
     :current-ticket nil
     :comments []
     :comments-total 0
@@ -966,6 +967,8 @@
  (fn [db [_ boards]]
    (assoc db :boards boards)))
 
+(def ^:private in-flight-board-load (atom nil))
+
 (rf/reg-event-fx
  :select-board
  (fn [{:keys [db]} [_ board]]
@@ -983,15 +986,30 @@
  (fn [{:keys [db]} [_ board-id]]
    (let [id (or board-id (:current-board-id db)
                 (:id (first (:boards db))))]
-     (if id
-(api/fetch-board id
-        (fn [response]
-          (rf/dispatch [:set-current-board response])
-          (rf/dispatch [:load-all-columns (:statuses response)]))
-         (fn [error]
-           (rf/dispatch [:set-error (str "Failed to fetch board: " error)])))
-        (rf/dispatch [:fetch-tickets {}]))
-     {:db (assoc db :current-board-id id)})))
+     (cond
+       (= id (:loaded-board-id db))
+       {:db (assoc db :current-board-id id)}
+
+       (= id @in-flight-board-load)
+       {:db (assoc db :current-board-id id)}
+
+       id
+       (do
+         (reset! in-flight-board-load id)
+         (api/fetch-board id
+          (fn [response]
+            (reset! in-flight-board-load nil)
+            (rf/dispatch [:set-current-board response])
+            (rf/dispatch [:load-all-columns (:statuses response)]))
+          (fn [error]
+            (reset! in-flight-board-load nil)
+            (rf/dispatch [:set-error (str "Failed to fetch board: " error)])))
+         {:db (assoc db :current-board-id id)})
+
+       :else
+       (do
+         (rf/dispatch [:fetch-tickets {}])
+         {:db db})))))
 
 (rf/reg-event-fx
  :set-current-board
@@ -1001,6 +1019,7 @@
        (js/setUrl (str "/boards/" (:id response))))
      {:db (assoc db
                  :current-board-id (:id response)
+                 :loaded-board-id (:id response)
                  :current-board (select-keys response [:id :name :type :is_default :owner_id
                                                         :statuses :transitions]))})))
 

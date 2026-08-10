@@ -25,13 +25,16 @@
 
 (def ^:private in-flight-pages (atom #{}))
 
-(defn- page-request [key status priority page limit params]
+(defn- page-key [board-id status priority]
+  (str board-id "|" status "|" priority))
+
+(defn- page-request [board-id key status priority page limit params]
   (when-not (contains? @in-flight-pages key)
     (swap! in-flight-pages conj key)
     (api/fetch-tickets params
      (fn [response]
        (swap! in-flight-pages disj key)
-       (rf/dispatch [:set-priority-load key status priority page limit
+       (rf/dispatch [:set-priority-load board-id status priority page limit
                      (:tickets response) (:total response)]))
      (fn [error]
        (swap! in-flight-pages disj key)
@@ -169,62 +172,68 @@
 (rf/reg-event-fx
  :load-priority
  (fn [{:keys [db]} [_ status priority limit]]
-   (let [key (str status "|" priority)
+   (let [board-id (:current-board-id db)
+         key (page-key board-id status priority)
          limit-val (or limit 20)
          loaded (count (filter #(and (= (:status %) status)
                                      (= (:priority %) priority))
                                (:tickets db)))
          page (max 1 (+ (quot loaded limit-val) 1))
-         params {:board_id (:current-board-id db)
+         params {:board_id board-id
                  :status status
                  :priority priority
                  :limit limit-val
                  :page page}]
-     (page-request key status priority page limit-val params)
+     (page-request board-id key status priority page limit-val params)
      {:db db})))
 
 (rf/reg-event-fx
  :load-initial-columns
  (fn [{:keys [db]} [_ statuses]]
-   (let [priorities ["high" "medium" "low"]]
+   (let [priorities ["high" "medium" "low"]
+         board-id (:current-board-id db)]
+     (reset! in-flight-pages #{})
      (doseq [status statuses]
        (doseq [priority priorities]
-         (let [key (str (:code status) "|" priority)]
+         (let [key (page-key board-id (:code status) priority)]
            (when-not (contains? @in-flight-pages key)
-             (page-request key (:code status) priority 1
+             (page-request board-id key (:code status) priority 1
                            (:load_count status)
-                           {:board_id (:current-board-id db)
+                           {:board_id board-id
                             :status (:code status)
                             :priority priority
                             :limit (:load_count status)
                             :page 1}))))))
-   {:db (assoc db :ticket-page {} :ticket-total {})}))
+   {:db (assoc db :tickets [] :ticket-page {} :ticket-total {})}))
 
 (rf/reg-event-db
  :set-priority-load
- (fn [db [_ key status priority page limit tickets total]]
-   (let [existing (:tickets db)
-         other (remove #(and (= (:status %) status)
-                             (= (:priority %) priority))
-                       existing)
-         same (filter #(and (= (:status %) status)
-                            (= (:priority %) priority))
-                      existing)
-         new-ids (set (map :id tickets))
-         same-keep (remove #(contains? new-ids (:id %)) same)
-         merged (vec (concat other same-keep tickets))
-         group-loaded (count (filter #(and (= (:status %) status)
-                                           (= (:priority %) priority))
-                                     merged))
-         final-total (if (or (empty? tickets)
-                             (< (count tickets) limit))
-                       group-loaded
-                       total)]
-     (assoc db
-            :tickets merged
-            :ticket-page (assoc (:ticket-page db) key page)
+ (fn [db [_ board-id status priority page limit tickets total]]
+   (if (and board-id (not= board-id (:current-board-id db)))
+     db
+     (let [key (page-key board-id status priority)
+           existing (:tickets db)
+           other (remove #(and (= (:status %) status)
+                               (= (:priority %) priority))
+                         existing)
+           same (filter #(and (= (:status %) status)
+                              (= (:priority %) priority))
+                        existing)
+           new-ids (set (map :id tickets))
+           same-keep (remove #(contains? new-ids (:id %)) same)
+           merged (vec (concat other same-keep tickets))
+           group-loaded (count (filter #(and (= (:status %) status)
+                                             (= (:priority %) priority))
+                                       merged))
+           final-total (if (or (empty? tickets)
+                               (< (count tickets) limit))
+                         group-loaded
+                         total)]
+       (assoc db
+              :tickets merged
+              :ticket-page (assoc (:ticket-page db) key page)
             :ticket-total (assoc (:ticket-total db) key final-total)
-            :loading false :error nil))))
+            :loading false :error nil)))))
 
 (rf/reg-event-fx
  :load-all-columns

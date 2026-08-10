@@ -1003,10 +1003,13 @@
       statuses)))
 
 (defn board-view []
-  [:div.board-view
-   (for [status (board-columns)]
-     ^{:key (:id status)}
-     [board-column status])])
+  (let [board @(rf/subscribe [:current-board])]
+    (if (nil? board)
+      [:div.board-loading [:div.loading-indicator (t :loading)]]
+      [:div.board-view
+       (for [status (board-columns)]
+         ^{:key (:id status)}
+         [board-column status])])))
 
 (def create-board-open (r/atom false))
 (def manage-board-open (r/atom false))

@@ -35,9 +35,11 @@
      (fn [response]
        (swap! in-flight-pages disj key)
        (rf/dispatch [:set-priority-load board-id status priority page limit
-                     (:tickets response) (:total response)]))
+                     (:tickets response) (:total response)])
+       (rf/dispatch [:board-load-step board-id]))
      (fn [error]
        (swap! in-flight-pages disj key)
+       (rf/dispatch [:board-load-step board-id])
        (rf/dispatch [:set-error (str "Failed to load column: " error)])))))
 
 (defn- adjust-ticket-total [db status priority delta]
@@ -86,6 +88,13 @@
     :ticket-page {}
     :ticket-total {}
     :search-query ""
+    :buffered-tickets []
+    :buffered-ticket-page {}
+    :buffered-ticket-total {}
+    :buffered-board nil
+    :board-loading false
+    :board-load-pending 0
+    :board-loading-board nil
     :loading true
     :error nil
      :active-tab :comments
@@ -192,28 +201,41 @@
  :load-initial-columns
  (fn [{:keys [db]} [_ statuses]]
    (let [priorities ["high" "medium" "low"]
-         board-id (:current-board-id db)]
+         board-id (:current-board-id db)
+         sent (atom 0)]
      (reset! in-flight-pages #{})
      (doseq [status statuses]
        (doseq [priority priorities]
          (let [key (page-key board-id (:code status) priority)]
            (when-not (contains? @in-flight-pages key)
+             (swap! sent inc)
              (page-request board-id key (:code status) priority 1
                            (:load_count status)
                            {:board_id board-id
                             :status (:code status)
                             :priority priority
                             :limit (:load_count status)
-                            :page 1}))))))
-   {:db (assoc db :tickets [] :ticket-page {} :ticket-total {})}))
+                            :page 1})))))
+     (when (zero? @sent)
+       (rf/dispatch [:board-load-step board-id]))
+     {:db (assoc db :buffered-tickets [] :buffered-ticket-page {}
+                 :buffered-ticket-total {}
+                 :board-loading true
+                 :board-load-pending (max 1 @sent)
+                 :board-loading-board board-id)})))
 
 (rf/reg-event-db
  :set-priority-load
  (fn [db [_ board-id status priority page limit tickets total]]
    (if (and board-id (not= board-id (:current-board-id db)))
      db
-     (let [key (page-key board-id status priority)
-           existing (:tickets db)
+     (let [buffering? (and (:board-loading db)
+                           (= board-id (:board-loading-board db)))
+           tkey (if buffering? :buffered-tickets :tickets)
+           pkey (if buffering? :buffered-ticket-page :ticket-page)
+           totkey (if buffering? :buffered-ticket-total :ticket-total)
+           key (page-key board-id status priority)
+           existing (get db tkey)
            other (remove #(and (= (:status %) status)
                                (= (:priority %) priority))
                          existing)
@@ -231,10 +253,34 @@
                          group-loaded
                          total)]
        (assoc db
-              :tickets merged
-              :ticket-page (assoc (:ticket-page db) key page)
-            :ticket-total (assoc (:ticket-total db) key final-total)
-            :loading false :error nil)))))
+              tkey merged
+              pkey (assoc (get db pkey) key page)
+              totkey (assoc (get db totkey) key final-total)
+              :loading false :error nil)))))
+
+(rf/reg-event-db
+ :board-load-step
+ (fn [db [_ board-id]]
+   (if (and (:board-loading db)
+            (= board-id (:board-loading-board db))
+            (= board-id (:current-board-id db)))
+     (let [remaining (max 0 (dec (:board-load-pending db 0)))]
+       (if (zero? remaining)
+         (-> db
+             (assoc :tickets (:buffered-tickets db)
+                    :ticket-page (:buffered-ticket-page db)
+                    :ticket-total (:buffered-ticket-total db)
+                    :current-board (:buffered-board db)
+                    :loaded-board-id board-id
+                    :board-loading false
+                    :board-load-pending 0
+                    :board-loading-board nil
+                    :buffered-tickets []
+                    :buffered-ticket-page {}
+                    :buffered-ticket-total {}
+                    :buffered-board nil))
+         (assoc db :board-load-pending remaining)))
+     db)))
 
 (rf/reg-event-fx
  :load-all-columns
@@ -1020,7 +1066,7 @@
      {:db (assoc db
                  :current-board-id (:id response)
                  :loaded-board-id (:id response)
-                 :current-board (select-keys response [:id :name :type :is_default :owner_id
+                 :buffered-board (select-keys response [:id :name :type :is_default :owner_id
                                                         :statuses :transitions]))})))
 
 (rf/reg-event-fx

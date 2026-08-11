@@ -32,7 +32,7 @@
                  (push entry result))
                (dolist (sub (uiop:subdirectories d))
                  (walk sub))))
-      (walk (abs-static-dir)))
+      (walk (uiop:ensure-directory-pathname dir)))
     (sort result #'string< :key #'file-namestring)))
 
 (defun read-file-bytes (file)
@@ -77,3 +77,4 @@
   (format t "Generated ~a~%" *output-file*))
 
 (build-static-assets)
+(uiop:quit)

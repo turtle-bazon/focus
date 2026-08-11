@@ -2381,6 +2381,10 @@ body {
   color: #e2e8f0;
   font-size: 14px;
 }
+.status-name-input--dirty {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
 .status-color-input {
   width: 42px;
   height: 32px;

@@ -6,7 +6,6 @@
  :bind-port 8080
  :nrepl-port 5000
  :nrepl-address "127.0.0.1"
- :static-dir "./build/static/"
  ;; OAuth2 provider
  :oauth2-client-id ""
  :oauth2-client-secret ""

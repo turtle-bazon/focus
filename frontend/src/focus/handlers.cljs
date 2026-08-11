@@ -1029,15 +1029,15 @@
 
 (rf/reg-event-fx
  :fetch-current-board
- (fn [{:keys [db]} [_ board-id]]
-   (let [id (or board-id (:current-board-id db)
-                (:id (first (:boards db))))]
-     (cond
-       (= id (:loaded-board-id db))
-       {:db (assoc db :current-board-id id)}
+ (fn [{:keys [db]} [_ board-id force]]
+    (let [id (or board-id (:current-board-id db)
+                 (:id (first (:boards db))))]
+      (cond
+        (and (not force) (= id (:loaded-board-id db)))
+        {:db (assoc db :current-board-id id)}
 
-       (= id @in-flight-board-load)
-       {:db (assoc db :current-board-id id)}
+        (and (not force) (= id @in-flight-board-load))
+        {:db (assoc db :current-board-id id)}
 
        id
        (do
@@ -1102,7 +1102,7 @@
     (api/update-board (or id (:current-board-id db)) data
      (fn [_response]
       (rf/dispatch [:fetch-boards])
-      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+      (rf/dispatch [:fetch-current-board (:current-board-id db) true]))
      (fn [error]
       (rf/dispatch [:set-error (str "Failed to update board: " error)])))
    {:db db}))
@@ -1112,7 +1112,7 @@
  (fn [{:keys [db]} [_ data]]
    (api/create-board-status (:current-board-id db) data
     (fn []
-      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+      (rf/dispatch [:fetch-current-board (:current-board-id db) true]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to add status: " error)])))
    {:db db}))
@@ -1122,7 +1122,7 @@
  (fn [{:keys [db]} [_ status-id data]]
    (api/update-board-status (:current-board-id db) status-id data
     (fn []
-      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+      (rf/dispatch [:fetch-current-board (:current-board-id db) true]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to update status: " error)])))
    {:db db}))
@@ -1132,7 +1132,7 @@
  (fn [{:keys [db]} [_ status-id]]
    (api/delete-board-status (:current-board-id db) status-id
     (fn []
-      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+      (rf/dispatch [:fetch-current-board (:current-board-id db) true]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to remove status: " error)])))
    {:db db}))
@@ -1158,7 +1158,7 @@
  (fn [{:keys [db]} [_ member-type member-id]]
    (api/add-board-member (:current-board-id db) member-type member-id
     (fn []
-      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+      (rf/dispatch [:fetch-current-board (:current-board-id db) true]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to add member: " error)])))
    {:db db}))
@@ -1168,7 +1168,7 @@
  (fn [{:keys [db]} [_ member-type member-id]]
    (api/remove-board-member (:current-board-id db) member-type member-id
     (fn []
-      (rf/dispatch [:fetch-current-board (:current-board-id db)]))
+      (rf/dispatch [:fetch-current-board (:current-board-id db) true]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to remove member: " error)])))
    {:db db}))

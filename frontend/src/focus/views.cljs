@@ -1160,6 +1160,9 @@
         status-color (r/atom "#6b7280")
         board-name (r/atom "")
         board-seeded (r/atom false)
+        board-timer (r/atom nil)
+        name-edits (r/atom {})
+        name-timers (r/atom {})
         esc-handler (fn [e]
                       (when (= (.-key e) "Escape")
                         (reset! manage-board-open false)
@@ -1168,7 +1171,11 @@
      {:component-did-mount (fn [_]
                              (.addEventListener js/document "keydown" esc-handler))
       :component-will-unmount (fn [_]
-                                (.removeEventListener js/document "keydown" esc-handler))
+                                (.removeEventListener js/document "keydown" esc-handler)
+                                (doseq [t (vals @name-timers)]
+                                  (js/clearTimeout t))
+                                (when @board-timer
+                                  (js/clearTimeout @board-timer)))
       :reagent-render
       (fn []
         (let [board @(rf/subscribe [:current-board])
@@ -1178,6 +1185,16 @@
               on (fn [from to] (boolean (some #(and (= (:from_code %) from)
                                                     (= (:to_code %) to))
                                               transitions)))
+              save-board (fn []
+                           (let [v (str/trim @board-name)]
+                             (when (and (seq v) (not= v (:name board)))
+                               (rf/dispatch [:update-board board-id {:name v}]))
+                             (reset! board-name v)))
+              queue-board-save (fn []
+                                 (when @board-timer
+                                   (js/clearTimeout @board-timer))
+                                 (reset! board-timer
+                                         (js/setTimeout save-board 600)))
               dirty? (and (seq @board-name)
                           (not= (str/trim @board-name) (:name board)))]
           (when @manage-board-open
@@ -1193,24 +1210,19 @@
               [:h3 (t :board/workflow) " -- " (:name board)]
               [:div.rename-board-row
                [:label.rename-board-label (t :board/name)]
-               [:input.board-name-input
-                {:class (when dirty? "board-name-input--dirty")
-                 :value @board-name
-                 :placeholder (t :board/name-placeholder)
-                 :on-change (fn [e]
-                              (reset! board-name (-> e .-target .-value)))
-                 :on-key-down (fn [e]
-                                (when (= (.-key e) "Enter")
-                                  (rf/dispatch [:update-board board-id {:name (str/trim @board-name)}])
-                                  (reset! board-name (str/trim @board-name))))}]
-               [:button.primary-button.rename-save-button
-                {:disabled (or (empty? (str/trim @board-name))
-                               (= (str/trim @board-name) (:name board)))
-                 :on-click (fn []
-                             (rf/dispatch [:update-board board-id {:name (str/trim @board-name)}])
-                             (reset! board-name (str/trim @board-name)))}
-                (t :common/save)]]
-              [:div.manage-statuses
+                [:input.board-name-input
+                 {:class (when dirty? "board-name-input--dirty")
+                  :value @board-name
+                  :placeholder (t :board/name-placeholder)
+                  :on-change (fn [e]
+                               (reset! board-name (-> e .-target .-value))
+                               (queue-board-save))
+                  :on-key-down (fn [e]
+                                 (when (= (.-key e) "Enter")
+                                   (when @board-timer
+                                     (js/clearTimeout @board-timer))
+                                    (save-board)))}]]
+               [:div.manage-statuses
                [:h4 (t :board/statuses)]
                (doall
                 (for [s statuses]
@@ -1219,8 +1231,22 @@
                    [:span.status-dot {:style {:background-color (:color s)}}]
                    [:span.status-code (:code s)]
                    [:input.status-name-input
-                    {:value (:name s)
-                     :on-change #(rf/dispatch [:update-board-status (:id s) {:name (-> % .-target .-value)}])}]
+                    {:class (when (not= (get @name-edits (:id s) (:name s)) (:name s))
+                              "status-name-input--dirty")
+                     :value (get @name-edits (:id s) (:name s))
+                     :on-change (fn [e]
+                                  (let [v (-> e .-target .-value)
+                                        id (:id s)]
+                                    (swap! name-edits assoc id v)
+                                    (when-let [t (get @name-timers id)]
+                                      (js/clearTimeout t))
+                                     (swap! name-timers assoc id
+                                            (js/setTimeout
+                                             (fn []
+                                               (swap! name-timers dissoc id)
+                                               (rf/dispatch [:update-board-status id {:name v}]))
+                                             600))))}]
+
                    [:input.status-color-input
                     {:type "color" :value (:color s)
                      :on-change #(rf/dispatch [:update-board-status (:id s) {:color (-> % .-target .-value)}])}]

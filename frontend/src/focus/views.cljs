@@ -781,10 +781,8 @@
           [:p (t :auth/not-configured)]
           [:p (t :auth/config-hint)]])]]
      [:div.landing-footer
-      [:p.landing-version (if (:version app-info)
-                            (str (or (:name app-info) (t :app/title))
-                                 " v" (:version app-info))
-                            (t :app/version))]]]))
+      [:p.landing-version (str (or (:name app-info) (t :app/title))
+                               " v" (or (:version app-info) "0.0.0.0"))]]]))
 
 ;;; Board components
 

@@ -7,3 +7,5 @@ glob:build/**
 glob:frontend/target/**
 glob:frontend/.lein-*
 glob:.opencode/**
+glob:src/static-assets.lisp
+glob:frontend/resources/public/js/app.js

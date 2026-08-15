@@ -32,14 +32,16 @@ jobs:
           echo "deb http://deb.debian.org/debian-security bullseye-security main" >> /etc/apt/sources.list
           echo "deb http://deb.debian.org/debian bullseye-updates main" >> /etc/apt/sources.list
           apt-get update -o Acquire::Retries=5
-          apt-get install -y --no-install-recommends git make pkg-config libuv1-dev libssl-dev
+          apt-get install -y --no-install-recommends git make pkg-config libuv1-dev libssl-dev default-jre-headless
+          curl -fsSL https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein -o /usr/local/bin/lein
+          chmod +x /usr/local/bin/lein
           EOF
 
       - uses: actions/checkout@v4
 
       - name: Install system deps (macOS)
         if: runner.os == 'macOS'
-        run: brew install sbcl libuv
+        run: brew install sbcl libuv leiningen
 
       - name: Set up Quicklisp
         shell: bash

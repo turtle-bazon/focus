@@ -12,6 +12,7 @@ prepare:
 	mkdir -p build/static/css build/static/js
 
 frontend: prepare
+	cd frontend && lein cljsbuild once min
 	cp frontend/resources/public/index.html build/static/
 	cp -r frontend/resources/public/img build/static/
 	cp frontend/resources/public/css/style.css build/static/css/

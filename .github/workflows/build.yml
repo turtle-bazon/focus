@@ -125,6 +125,17 @@ jobs:
           echo '(push *default-pathname-defaults* asdf:*central-registry*)' >> "$HOME/.sbclrc"
           echo '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' >> "$HOME/.sbclrc"
 
+      - name: Generate static-assets stub
+        shell: bash
+        run: |
+          cat > src/static-assets.lisp <<'EOF'
+(in-package :focus)
+
+;;; Generated stub for CI — static assets are only embedded by `make build`.
+(defparameter *static-assets*
+  '( ))
+EOF
+
       - name: Run migrations
         shell: bash
         run: |

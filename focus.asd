@@ -19,7 +19,8 @@
                #:uiop
                #:dexador
                #:cl-oauth2
-               #:cl-base64)
+               #:cl-base64
+               #:ironclad)
   :serial t
   :components ((:module "src"
                 :components
@@ -42,7 +43,8 @@
                                   (:file "session")
                                   (:file "group")
                                   (:file "ticket-observer")
-                                  (:file "board")))
+                                  (:file "board")
+                                  (:file "agent")))
                   (:module "api"
                    :components ((:file "routes")
                                 (:file "auth")

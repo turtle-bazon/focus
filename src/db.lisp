@@ -69,6 +69,11 @@
 
 ;;; Parameterized queries
 
+(defun sql-null-or (value)
+  "Return :null (SQL NULL) for NIL, else VALUE. Use for optional integer
+   parameters — cl-postgres cannot bind NIL to integer columns."
+  (or value :null))
+
 (defun alist-to-plist (alist)
   "Convert an alist to a plist. SQL NULL values (postmodern returns the
    keyword :null) are normalized to NIL."

@@ -82,6 +82,27 @@
 (defn create-user [data on-success on-error]
   (post "/users" data on-success on-error))
 
+(defn fetch-agents [on-success on-error]
+  (get "/agents" nil on-success on-error))
+
+(defn create-agent [data on-success on-error]
+  (post "/agents" data on-success on-error))
+
+(defn update-agent [id data on-success on-error]
+  (put (str "/agents/" id) data on-success on-error))
+
+(defn delete-agent [id on-success on-error]
+  (delete (str "/agents/" id) on-success on-error))
+
+(defn fetch-agent-keys [id on-success on-error]
+  (get (str "/agents/" id "/keys") nil on-success on-error))
+
+(defn create-agent-key [id on-success on-error]
+  (post (str "/agents/" id "/keys") {} on-success on-error))
+
+(defn revoke-agent-key [id key-id on-success on-error]
+  (delete (str "/agents/" id "/keys/" key-id) on-success on-error))
+
 (defn fetch-labels [on-success on-error]
   (get "/labels" nil on-success on-error))
 

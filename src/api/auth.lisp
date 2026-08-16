@@ -21,6 +21,27 @@
 
 (defvar *oauth2-client* nil)
 
+(defun bearer-token-from-env (env)
+  "Extract a bearer token from the Authorization header, or nil."
+  (let ((auth (or (getf env :authorization)
+                  (getf (getf env :mode) :authorization))))
+    (when (and auth (typep auth 'string))
+      (let ((trimmed (string-trim " " auth)))
+        (when (>= (length trimmed) 7)
+          (let ((scheme (subseq trimmed 0 (min 7 (length trimmed)))))
+            (when (and (string-equal scheme "Bearer")
+                       (> (length trimmed) 7))
+              (string-trim " " (subseq trimmed 7)))))))))
+
+(defun get-agent-and-key-from-env (env)
+  "Resolve a bearer token in ENV to an agent. Returns two values: the agent
+   plist and the key, or NIL values if no token or unknown token."
+  (let ((token (bearer-token-from-env env)))
+    (when token
+      (let ((agent (find-agent-by-key token)))
+        (when agent
+          (values agent token))))))
+
 (defun make-oauth2-client-from-config (config)
   "Create an OAuth2 client from focus.conf settings."
   (setf *oauth2-client*

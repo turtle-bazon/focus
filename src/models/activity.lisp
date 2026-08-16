@@ -46,19 +46,20 @@
                                       (null "null")))))))
       (format nil "{~{~a~^,~}}" pairs))))
 
-(defun create-activity (ticket-id user-id action &key details)
+(defun create-activity (ticket-id user-id action &key agent-id details)
   "Create a new activity entry. Returns the activity ID."
   (db-query
-   "INSERT INTO activity (ticket_id, user_id, action, details) VALUES ($1, $2, $3, $4) RETURNING id"
-   ticket-id user-id action (details-to-json details)
+   "INSERT INTO activity (ticket_id, user_id, agent_id, action, details)
+    VALUES ($1, $2, $3, $4, $5) RETURNING id"
+   ticket-id user-id (sql-null-or agent-id) action (details-to-json details)
    :single))
 
 (defun list-activity (ticket-id &key (limit 20) (offset 0))
   "List activity for a ticket with pagination."
   (pg-query-params
-   "SELECT id, ticket_id, user_id, action, details, created_at
-    FROM activity WHERE ticket_id = $1
-    ORDER BY created_at DESC
+   "SELECT a.id, a.ticket_id, a.user_id, a.agent_id, a.action, a.details, a.created_at
+    FROM activity a WHERE a.ticket_id = $1
+    ORDER BY a.created_at DESC
     LIMIT $2 OFFSET $3"
    (list ticket-id limit offset)))
 
@@ -74,8 +75,8 @@
   "List activity for all tickets on a board with pagination. Returns rows
    including the ticket title and status for context."
   (pg-query-params
-   "SELECT a.id, a.ticket_id, a.user_id, a.action, a.details, a.created_at,
-           t.title AS ticket_title, t.status AS ticket_status
+"SELECT a.id, a.ticket_id, a.user_id, a.agent_id, a.action, a.details, a.created_at,
+            t.title AS ticket_title, t.status AS ticket_status
     FROM activity a
     JOIN tickets t ON t.id = a.ticket_id
     WHERE t.board_id = $1
@@ -101,9 +102,9 @@
   (if (null user-id)
       nil
       (pg-query-params
-       "SELECT a.id, a.ticket_id, a.user_id, a.action, a.details, a.created_at,
-               b.id AS board_id, b.name AS board_name,
-               t.title AS ticket_title, t.status AS ticket_status
+"SELECT a.id, a.ticket_id, a.user_id, a.agent_id, a.action, a.details, a.created_at,
+                b.id AS board_id, b.name AS board_name,
+                t.title AS ticket_title, t.status AS ticket_status
         FROM activity a
         JOIN tickets t ON t.id = a.ticket_id
         JOIN boards b ON b.id = t.board_id
@@ -167,8 +168,8 @@
 (defun get-activity-by-id (id)
   "Get activity by ID. Returns plist or nil."
   (let ((results (db-query
-                  "SELECT id, ticket_id, user_id, action, details, created_at
-                   FROM activity WHERE id = $1"
+                  "SELECT a.id, a.ticket_id, a.user_id, a.agent_id, a.action, a.details, a.created_at
+                   FROM activity a WHERE a.id = $1"
                   id :alists)))
     (when results (alist-to-plist (car results)))))
 
@@ -176,7 +177,7 @@
   "Get activity by ID joined with its ticket and board for live delivery.
    Returns plist or nil."
   (let ((results (pg-query-params
-                  "SELECT a.id, a.ticket_id, a.user_id, a.action, a.details,
+                  "SELECT a.id, a.ticket_id, a.user_id, a.agent_id, a.action, a.details,
                           a.created_at, t.title AS ticket_title,
                           t.status AS ticket_status, b.id AS board_id,
                           b.name AS board_name

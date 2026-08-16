@@ -84,6 +84,7 @@
 (defn init-board []
   (rf/dispatch [:fetch-boards])
   (rf/dispatch [:fetch-users])
+  (rf/dispatch [:fetch-agents])
   (rf/dispatch [:fetch-labels])
   (rf/dispatch [:fetch-groups])
   (ws/connect))

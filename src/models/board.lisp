@@ -136,6 +136,37 @@
     (find board-id (list-visible-boards user-id)
           :key (lambda (b) (getf b :id)))))
 
+(defun agent-visible-boards (agent)
+  "Boards visible to an AGENT (plist with :id and :owner-id): the agent must be
+   a member AND its owner must be able to see the board. Admins' agents are
+   still capped by membership."
+  (let ((owner-id (getf agent :owner-id))
+        (agent-id (getf agent :id)))
+    (when agent-id
+      (pg-query-params
+       "SELECT b.id, b.name, b.type, b.is_default, b.owner_id, b.created_at
+        FROM boards b
+        JOIN board_members bm ON bm.board_id = b.id
+        WHERE bm.member_type = 'agent' AND bm.member_id = $1
+          AND b.id IN (
+            SELECT DISTINCT v.id FROM boards v
+            LEFT JOIN board_members vm ON vm.board_id = v.id
+            LEFT JOIN group_members vg ON vg.group_id = vm.member_id
+              AND vm.member_type = 'group'
+            WHERE v.is_default
+               OR v.owner_id = $2
+               OR (vm.member_type = 'user' AND vm.member_id = $2)
+               OR vg.user_id = $2)
+        ORDER BY b.is_default DESC, b.name"
+       (list agent-id owner-id)))))
+
+(defun agent-can-view-board (board-id agent)
+  "True if AGENT may view BOARD: an agent is a member AND its owner may view it.
+   Agents are never managers."
+  (when (and board-id agent)
+    (find board-id (agent-visible-boards agent)
+          :key (lambda (b) (getf b :id)))))
+
 ;;; Board membership
 
 (defun list-board-members (board-id)

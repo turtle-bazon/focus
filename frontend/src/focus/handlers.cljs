@@ -64,6 +64,8 @@
     :app-info nil
     :tickets []
     :users []
+    :agents []
+    :agent-keys {}
     :labels []
     :groups []
     :group-members {}
@@ -461,6 +463,85 @@
  :set-users
  (fn [db [_ users]]
    (assoc db :users users)))
+
+(rf/reg-event-fx
+ :fetch-agents
+ (fn [{:keys [db]} _]
+   (api/fetch-agents
+    (fn [response]
+      (rf/dispatch [:set-agents (:agents response)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to fetch agents: " error)])))
+   {:db db}))
+
+(rf/reg-event-db
+ :set-agents
+ (fn [db [_ agents]]
+   (assoc db :agents agents)))
+
+(rf/reg-event-fx
+ :create-agent
+ (fn [{:keys [db]} [_ name description on-success]]
+   (api/create-agent
+    {:name name :description description}
+    (fn [response]
+      (when on-success (on-success response))
+      (rf/dispatch [:fetch-agents]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to create agent: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :delete-agent
+ (fn [{:keys [db]} [_ id on-success]]
+   (api/delete-agent
+    id
+    (fn [_]
+      (when on-success (on-success))
+      (rf/dispatch [:fetch-agents]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to delete agent: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :create-agent-key
+ (fn [{:keys [db]} [_ id on-success]]
+   (api/create-agent-key
+    id
+    (fn [response]
+      (when on-success (on-success response))
+      (rf/dispatch [:fetch-agent-keys id]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to create agent key: " error)])))
+   {:db db}))
+
+(rf/reg-event-fx
+ :fetch-agent-keys
+ (fn [{:keys [db]} [_ id]]
+   (api/fetch-agent-keys
+    id
+    (fn [response]
+      (rf/dispatch [:set-agent-keys id (:keys response)]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to fetch agent keys: " error)])))
+   {:db db}))
+
+(rf/reg-event-db
+ :set-agent-keys
+ (fn [db [_ id keys]]
+   (assoc-in db [:agent-keys id] keys)))
+
+(rf/reg-event-fx
+ :revoke-agent-key
+ (fn [{:keys [db]} [_ id key-id on-success]]
+   (api/revoke-agent-key
+    id key-id
+    (fn [_]
+      (when on-success (on-success))
+      (rf/dispatch [:fetch-agent-keys id]))
+    (fn [error]
+      (rf/dispatch [:set-error (str "Failed to revoke agent key: " error)])))
+   {:db db}))
 
 (rf/reg-event-fx
  :fetch-labels
@@ -938,7 +1019,41 @@
  (fn [{:keys [db]} _]
    (rf/dispatch [:fetch-users])
    (rf/dispatch [:fetch-groups])
+   (rf/dispatch [:fetch-agents])
    {:db (assoc db :settings-tab "users")}))
+
+(rf/reg-event-db
+ :show-agent-create-modal
+ (fn [db _]
+   (assoc db :agent-create-modal {:open? true :name "" :description ""})))
+
+(rf/reg-event-db
+ :set-agent-create-name
+ (fn [db [_ name]]
+   (assoc-in db [:agent-create-modal :name] name)))
+
+(rf/reg-event-db
+ :set-agent-create-description
+ (fn [db [_ description]]
+   (assoc-in db [:agent-create-modal :description] description)))
+
+(rf/reg-event-db
+ :close-agent-create-modal
+ (fn [db _]
+   (assoc db :agent-create-modal nil)))
+
+(rf/reg-event-db
+ :show-key-modal
+ (fn [db [_ agent-id token]]
+   (let [keys (get-in db [:agent-keys agent-id])]
+     (assoc db :key-modal {:agent-id agent-id
+                           :token token
+                           :revoked? (boolean (seq keys))}))))
+
+(rf/reg-event-db
+ :close-key-modal
+ (fn [db _]
+   (assoc db :key-modal nil)))
 
 (rf/reg-event-db
  :set-settings-tab
@@ -1071,10 +1186,11 @@
 
 (rf/reg-event-fx
  :create-board
- (fn [{:keys [db]} [_ name type group-ids user-ids]]
+ (fn [{:keys [db]} [_ name type group-ids user-ids agent-ids]]
    (api/create-board (cond-> {:name name :type (or type "personal")}
                        (seq group-ids) (assoc :group_ids group-ids)
-                       (seq user-ids) (assoc :user_ids user-ids))
+                       (seq user-ids) (assoc :user_ids user-ids)
+                       (seq agent-ids) (assoc :agent_ids agent-ids))
     (fn [response]
       (rf/dispatch [:fetch-boards])
       (let [id (:id response)]

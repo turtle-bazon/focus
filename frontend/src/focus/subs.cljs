@@ -49,6 +49,31 @@
    (:users db)))
 
 (rf/reg-sub
+ :agents
+ (fn [db _]
+   (:agents db)))
+
+(rf/reg-sub
+ :agent-map
+ (fn [db _]
+   (into {} (map #(vector (:id %) %) (:agents db)))))
+
+(rf/reg-sub
+ :agent-keys
+ (fn [db [_ id]]
+   (get-in db [:agent-keys id] [])))
+
+(rf/reg-sub
+ :agent-create-modal
+ (fn [db _]
+   (:agent-create-modal db)))
+
+(rf/reg-sub
+ :key-modal
+ (fn [db _]
+   (:key-modal db)))
+
+(rf/reg-sub
  :labels
  (fn [db _]
    (:labels db)))

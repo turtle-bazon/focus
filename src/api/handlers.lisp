@@ -132,16 +132,57 @@
     (when db-session
       (getf db-session :user-id))))
 
-(defun log-activity (ticket-id user-id action &key details)
+(defun get-actor (env)
+  "Return the acting identity as a plist, or nil. For a session cookie user:
+   (:user-id N). For a bearer token agent: (:agent-id N :user-id <owner> :agent <plist>)."
+  (or (let ((uid (get-user-id-from-env env)))
+        (when uid (list :user-id uid)))
+      (multiple-value-bind (agent token)
+          (get-agent-and-key-from-env env)
+        (declare (ignore token))
+        (when agent
+          (list :agent-id (getf agent :id)
+                :user-id (getf agent :owner-id)
+                :agent agent)))))
+
+(defun log-activity (ticket-id actor-id action &key agent-id details)
   "Log an activity entry and broadcast it live. Silently ignores errors.
-   Returns the activity ID or NIL."
-  (when user-id
+   Returns the activity ID or NIL. ACTOR-ID is the user id (for agents: the
+   owner); AGENT-ID tags the activity as performed by an agent."
+  (when actor-id
     (handler-case
-        (let ((id (create-activity ticket-id user-id action :details details)))
+        (let ((id (create-activity ticket-id actor-id action
+                                   :agent-id agent-id :details details)))
           (ws-broadcast-activity-created (get-activity-with-context id))
           id)
       (error (e)
         (bl:warn "Failed to log activity: ~a" e)))))
+
+(defun actor-board-access-error (env board-id)
+  "Return 403 response unless the actor may act on BOARD-ID. Agents are capped
+   by membership ∩ owner-access; users by their visibility."
+  (when board-id
+    (let* ((actor (get-actor env))
+           (agent (when (and actor (getf actor :agent)) (getf actor :agent))))
+      (cond
+        (actor
+         (let ((visible (if agent
+                            (agent-visible-boards agent)
+                            (list-visible-boards (getf actor :user-id)))))
+           (unless (find board-id visible :key (lambda (b) (getf b :id)))
+             (error-response "Board not found or not accessible" 403))))
+        (t (error-response "Not authenticated" 401))))))
+
+(defun actor-agent-id (env)
+  "Return the acting agent's ID, or nil for session users."
+  (let ((actor (get-actor env)))
+    (when (and actor (getf actor :agent-id))
+      (getf actor :agent-id))))
+
+(defun actor-user-id (env)
+  "Return the acting user id (for agents, their owner)."
+  (let ((actor (get-actor env)))
+    (getf actor :user-id)))
 
 ;;; Ticket handlers
 
@@ -176,7 +217,13 @@
     (if id
         (let ((ticket (get-ticket-by-id id)))
           (if ticket
-              (json-response ticket)
+              (let ((actor (get-actor env)))
+                (when (and actor (getf actor :agent))
+                  (unless (agent-can-view-board (getf ticket :board-id)
+                                                (getf actor :agent))
+                    (return-from handle-get-ticket
+                      (error-response "Ticket not found" 404))))
+                (json-response ticket))
               (error-response "Ticket not found" 404)))
         (error-response "Invalid ticket ID"))))
 
@@ -193,32 +240,36 @@
          (board-id (json-assoc :board_id body)))
     (unless title
       (return-from handle-create-ticket (error-response "Title is required")))
-    (bind ((id (create-ticket title
-                              :description description
-                              :status status
-                              :priority priority
-                              :assignee-id (when assignee-id
-                                            (if (stringp assignee-id)
-                                                (parse-integer assignee-id)
-                                                assignee-id))
-                              :assignee-type assignee-type
-                              :color color
-                              :board-id (when board-id
-                                         (if (stringp board-id)
-                                             (parse-integer board-id)
-                                             board-id)))))
-      (let ((ticket (get-ticket-by-id id))
-            (user-id (get-user-id-from-env env)))
-        (when (and ticket assignee-id)
-          (ensure-board-member (getf ticket :board-id)
-                               (or assignee-type "user")
-                               (if (stringp assignee-id)
-                                   (parse-integer assignee-id)
-                                   assignee-id)))
-        (log-activity id user-id "created"
-                       :details `((:title . ,title)))
-        (ws-broadcast-ticket-created ticket)
-        (json-response `(:id ,id) 201)))))
+    (let ((board-id (when board-id
+                      (if (stringp board-id) (parse-integer board-id) board-id))))
+      (when board-id
+        (let ((forbidden (actor-board-access-error env board-id)))
+          (when forbidden (return-from handle-create-ticket forbidden))))
+      (bind ((id (create-ticket title
+                                :description description
+                                :status status
+                                :priority priority
+                                :assignee-id (when assignee-id
+                                              (if (stringp assignee-id)
+                                                  (parse-integer assignee-id)
+                                                  assignee-id))
+                                :assignee-type assignee-type
+                                :color color
+                                :board-id board-id)))
+        (let ((ticket (get-ticket-by-id id))
+              (user-id (or (actor-user-id env) (get-user-id-from-env env)))
+              (agent-id (actor-agent-id env)))
+          (when (and ticket assignee-id)
+            (ensure-board-member (getf ticket :board-id)
+                                 (or assignee-type "user")
+                                 (if (stringp assignee-id)
+                                     (parse-integer assignee-id)
+                                     assignee-id)))
+          (log-activity id user-id "created"
+                        :agent-id agent-id
+                        :details `((:title . ,title)))
+          (ws-broadcast-ticket-created ticket)
+          (json-response `(:id ,id) 201)))))
 
 (defun handle-update-ticket (env)
   "PUT /api/tickets/:id"
@@ -235,7 +286,8 @@
                (position (json-assoc :position body))
                (board-id (json-assoc :board_id body))
                (old-ticket (get-ticket-by-id id))
-               (user-id (get-user-id-from-env env))
+               (user-id (or (actor-user-id env) (get-user-id-from-env env)))
+               (agent-id (actor-agent-id env))
                (new-board (if board-id
                               (if (stringp board-id)
                                   (parse-integer board-id)
@@ -243,6 +295,8 @@
                               (getf old-ticket :board-id))))
           (unless old-ticket
             (return-from handle-update-ticket (error-response "Ticket not found" 404)))
+          (let ((forbidden (actor-board-access-error env (getf old-ticket :board-id))))
+            (when forbidden (return-from handle-update-ticket forbidden)))
           ;; Enforce lifecycle transitions.
           ;; When the destination board is unchanged, every status move must be allowed.
           (when (and status
@@ -291,18 +345,22 @@
                       (title-changed (and old-ticket title (not (equal (getf old-ticket :title) title)))))
                   (when (and status-changed priority-changed)
                     (log-activity id user-id "status_priority_changed"
+                                  :agent-id agent-id
                                   :details `(("old-status" . ,(getf old-ticket :status))
                                              ("new-status" . ,status)
                                              ("old-priority" . ,(getf old-ticket :priority))
                                              ("new-priority" . ,priority))))
                   (when (and status-changed (not priority-changed))
                     (log-activity id user-id "status_changed"
+                                  :agent-id agent-id
                                   :details `((:from . ,(getf old-ticket :status)) (:to . ,status))))
                   (when (and priority-changed (not status-changed))
                     (log-activity id user-id "priority_changed"
+                                  :agent-id agent-id
                                   :details `((:from . ,(getf old-ticket :priority)) (:to . ,priority))))
                   (when title-changed
                     (log-activity id user-id "title_changed"
+                                  :agent-id agent-id
                                   :details `((:from . ,(getf old-ticket :title)) (:to . ,title)))))
                 ;; Any edit makes the editor an observer of the ticket.
                 (when (and user-id (get-user-by-id user-id))
@@ -347,31 +405,38 @@
   (let ((ticket-id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/comments$")))
     (if ticket-id
         (bind ((body (parse-json-body env))
-               (user-id (json-assoc :user_id body))
+               (agent-id (actor-agent-id env))
+               (user-id (or (actor-user-id env)
+                            (when (null agent-id)
+                              (json-assoc :user_id body))))
                (comment-body (json-assoc :body body)))
-          (unless user-id
+          (unless (or user-id agent-id)
             (return-from handle-create-comment (error-response "User ID is required")))
           (unless comment-body
             (return-from handle-create-comment (error-response "Body is required")))
+          (let ((ticket (get-ticket-by-id ticket-id)))
+            (when ticket
+              (let ((forbidden (actor-board-access-error env (getf ticket :board-id))))
+                (when forbidden (return-from handle-create-comment forbidden)))))
           (bind ((id (create-comment ticket-id
-                                     (if (stringp user-id)
-                                         (parse-integer user-id)
-                                         user-id)
-                                     comment-body))
+                                     user-id
+                                     comment-body
+                                     :agent-id agent-id))
                  (comment (get-comment-by-id id)))
             (log-activity ticket-id
-                          (if (stringp user-id) (parse-integer user-id) user-id)
+                          user-id
                           "comment_added"
+                          :agent-id agent-id
                           :details `((:user_id . ,user-id) (:body . ,comment-body)))
             ;; Commenting makes the commenter an observer of the ticket.
-            (add-ticket-observer ticket-id
-                                 "user"
-                                 (if (stringp user-id) (parse-integer user-id) user-id))
+            (when user-id
+              (add-ticket-observer ticket-id "user" user-id))
             (ws-broadcast-comment-created comment ticket-id
                                           (getf (get-ticket-by-id ticket-id) :board-id))
             (log-activity ticket-id
-                          (if (stringp user-id) (parse-integer user-id) user-id)
+                          user-id
                           "comment_added"
+                          :agent-id agent-id
                           :details `((:user_id . ,user-id) (:body . ,comment-body)))
             (json-response `(:id ,id) 201)))
         (error-response "Invalid ticket ID"))))
@@ -420,7 +485,10 @@
          (offset-str (cdr (assoc "offset" params :test #'string=)))
          (limit (if limit-str (parse-integer limit-str) 20))
          (offset (if offset-str (parse-integer offset-str) 0))
-         (user-id (get-user-id-from-env env))
+         (actor (get-actor env))
+         (user-id (if (and actor (getf actor :user-id))
+                      (getf actor :user-id)
+                      (get-user-id-from-env env)))
          (activity (list-all-board-activity user-id :limit limit :offset offset))
          (total (count-all-board-activity user-id)))
     (json-response `(:activity ,activity :total ,total))))
@@ -666,23 +734,33 @@
 
 (defun board-visibility-response (env)
   "Return 403 response if the user may not view the board."
-  (let* ((user-id (get-user-id-from-env env))
+  (let* ((actor (get-actor env))
          (board-id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)")))
     (when board-id
-      (let* ((visible (list-visible-boards user-id))
+      (let* ((agent (when (and actor (getf actor :agent))
+                      (getf actor :agent)))
+             (visible (cond
+                        (agent (agent-visible-boards agent))
+                        ((getf actor :user-id) (list-visible-boards (getf actor :user-id)))
+                        (t (list-visible-boards nil))))
              (found (find board-id visible :key (lambda (b) (getf b :id)))))
-        (unless (or found (manager-p user-id))
+        (unless (or found (and (not agent) (manager-p (getf actor :user-id))))
           (error-response "Board not found or not accessible" 403))))))
 
 (defun board-manage-error (board-id user-id)
-  "Return 403 response unless the user may manage the board."
+  "Return 403 response unless USER-ID may manage the board. Agent calls pass
+   NIL here and are handled separately (agents never manage)."
   (unless (can-manage-board board-id user-id)
     (error-response "You don't have permission to modify this board" 403)))
 
 (defun handle-list-boards (env)
   "GET /api/boards"
-  (let ((user-id (get-user-id-from-env env)))
-    (json-response `(:boards ,(list-visible-boards user-id)))))
+  (let* ((actor (get-actor env))
+         (agent (when (and actor (getf actor :agent)) (getf actor :agent)))
+         (boards (cond
+                   (agent (agent-visible-boards agent))
+                   (t (list-visible-boards (getf actor :user-id))))))
+    (json-response `(:boards ,boards))))
 
 (defun handle-create-board (env)
   "POST /api/boards"
@@ -702,7 +780,11 @@
           (iter (for group-id in (json-id-list (json-assoc :group_ids body)))
             (ensure-board-member board-id "group" group-id))
           (iter (for member-id in (json-id-list (json-assoc :user_ids body)))
-            (ensure-board-member board-id "user" member-id)))
+            (ensure-board-member board-id "user" member-id))
+          (iter (for agent-id in (json-id-list (json-assoc :agent_ids body)))
+            ;; Only the owner's own agents can be shared.
+            (when (= user-id (getf (get-agent-by-id agent-id) :owner-id))
+              (ensure-board-member board-id "agent" agent-id))))
         (json-response `(:id ,board-id) 201)))))
 
 (defun handle-get-board (env)
@@ -781,7 +863,7 @@
   (let* ((path (getf env :path-info))
          (board-id (extract-id-from-path path "^/api/boards/(\\d+)/members/.+$"))
          (parts (ppcre:register-groups-bind (bid member-type member-id)
-                     ("^/api/boards/(\\d+)/members/(user|group)/(\\d+)$" path)
+                     ("^/api/boards/(\\d+)/members/(user|group|agent)/(\\d+)$" path)
                    (list (when bid (parse-integer bid)) member-type
                          (when member-id (parse-integer member-id))))))
     (if (and board-id (second parts) (third parts))
@@ -901,3 +983,111 @@
           (remove-board-transition (first parts) (second parts) (third parts))
           (json-response `(:message "Transition removed")))
         (error-response "Invalid board, from_code, or to_code"))))
+
+;;; Agent handlers
+
+(defun require-session-user (env)
+  "Return the session user ID or short-circuit with a 401 response.
+   Agents may never manage agents or boards, so these endpoints are
+   session-cookie authenticated only. Returns (values id response-or-nil)."
+  (let ((user-id (get-user-id-from-env env)))
+    (cond
+      (user-id (values user-id nil))
+      ((get-actor env) (values nil (error-response "Agents cannot manage agents or boards" 403)))
+      (t (values nil (error-response "Not authenticated" 401))))))
+
+(defun handle-list-agents (env)
+  "GET /api/agents — list the acting user's agents."
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (if forbidden
+        forbidden
+        (json-response `(:agents ,(list-agents :owner-id user-id))))))
+
+(defun handle-create-agent (env)
+  "POST /api/agents — create an agent owned by the acting user."
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (if forbidden
+        forbidden
+        (bind ((body (parse-json-body env))
+               (name (json-assoc :name body))
+               (description (json-assoc :description body)))
+          (unless name
+            (return-from handle-create-agent (error-response "Name is required")))
+          (let ((id (create-agent user-id name :description description)))
+            (json-response `(:id ,id) 201))))))
+
+(defun handle-get-agent (env)
+  "GET /api/agents/:id"
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (if forbidden
+        forbidden
+        (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)$")))
+          (let ((agent (get-agent-by-id id)))
+            (if (and agent (= (getf agent :owner-id) user-id))
+                (json-response `(:agent ,agent))
+                (error-response "Agent not found" 404))))))))
+
+(defun handle-update-agent (env)
+  "PUT /api/agents/:id"
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (if forbidden
+        forbidden
+        (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)$")))
+          (let ((agent (get-agent-by-id id)))
+            (unless (and agent (= (getf agent :owner-id) user-id))
+              (return-from handle-update-agent (error-response "Agent not found" 404)))
+          (bind ((body (parse-json-body env))
+                 (name (json-assoc :name body))
+                 (description (json-assoc :description body)))
+            (json-response `(:agent ,(update-agent id :name name :description description)))))))))
+
+(defun handle-delete-agent (env)
+  "DELETE /api/agents/:id"
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (if forbidden
+        forbidden
+        (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)$")))
+          (let ((agent (get-agent-by-id id)))
+            (unless (and agent (= (getf agent :owner-id) user-id))
+              (return-from handle-delete-agent (error-response "Agent not found" 404)))
+          (delete-agent id)
+          (json-response `(:message "Agent deleted")))))))
+
+(defun handle-list-agent-keys (env)
+  "GET /api/agents/:id/keys"
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (if forbidden
+        forbidden
+        (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)/keys$")))
+          (let ((agent (get-agent-by-id id)))
+            (unless (and agent (= (getf agent :owner-id) user-id))
+              (return-from handle-list-agent-keys (error-response "Agent not found" 404)))
+          (json-response `(:keys ,(list-agent-keys id))))))))
+
+(defun handle-create-agent-key (env)
+  "POST /api/agents/:id/keys — create a new API key. Returns the raw token
+   once (it is only stored hashed)."
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (if forbidden
+        forbidden
+        (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)/keys$")))
+          (let ((agent (get-agent-by-id id)))
+            (unless (and agent (= (getf agent :owner-id) user-id))
+              (return-from handle-create-agent-key (error-response "Agent not found" 404)))
+          (let ((token (format nil "focus~d-~a" id (random-token-hex))))
+            (create-agent-key id token)
+            (json-response `(:token ,token :agent_id ,id) 201)))))))
+
+(defun handle-revoke-agent-key (env)
+  "DELETE /api/agents/:id/keys/:key_id"
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (if forbidden
+        forbidden
+        (let* ((path (getf env :path-info))
+               (id (extract-id-from-path path "^/api/agents/(\\d+)/keys/\\d+$"))
+               (key-id (extract-id-from-path path "^/api/agents/\\d+/keys/(\\d+)$")))
+          (let ((agent (get-agent-by-id id)))
+            (unless (and agent (= (getf agent :owner-id) user-id))
+              (return-from handle-revoke-agent-key (error-response "Agent not found" 404)))
+          (revoke-agent-key id key-id)
+          (json-response `(:message "Key revoked")))))))

@@ -1017,16 +1017,19 @@
         type (r/atom "personal")
         group-ids (r/atom #{})
         user-ids (r/atom #{})
+        agent-ids (r/atom #{})
         prev-open (r/atom false)]
     (fn []
       (let [groups @(rf/subscribe [:groups])
-            users @(rf/subscribe [:users])]
+            users @(rf/subscribe [:users])
+            agents @(rf/subscribe [:agents])]
         (when (and @create-board-open (not @prev-open))
           (reset! prev-open true)
           (reset! name "")
           (reset! type "personal")
           (reset! group-ids #{})
           (reset! user-ids #{})
+          (reset! agent-ids #{})
           (rf/dispatch [:fetch-groups])
           (rf/dispatch [:fetch-users]))
         (when (and (not @create-board-open) @prev-open)
@@ -1047,7 +1050,7 @@
               :on-change #(reset! name (-> % .-target .-value))
               :on-key-down #(when (and (= (.-key %) "Enter") (not (empty? @name)))
                               (rf/dispatch [:create-board @name @type
-                                            (vec @group-ids) (vec @user-ids)])
+                                            (vec @group-ids) (vec @user-ids) (vec @agent-ids)])
                               (reset! create-board-open false)
                               (reset! name ""))}]
             [:div.board-type-row
@@ -1082,15 +1085,26 @@
    [:div.board-share-group
     [:span.board-share-caption (t :board/users)]
     (if (seq users)
-       (doall
-        (for [u users
-              :when (not (:is_deleted u))]
-          (let [active? (contains? @user-ids (:id u))
+      (doall
+       (for [u users
+             :when (not (:is_deleted u))]
+         (let [active? (contains? @user-ids (:id u))
                toggle #(swap! user-ids (if active? disj conj) (:id u))]
            [:label.board-chip {:class (when active? "active")}
             [:input {:type "checkbox" :checked active? :on-change toggle}]
             [:span (or (:username u) (:email u) (str "User " (:id u)))]])))
-      [:span.board-share-empty (t :board/no-users)])]])
+      [:span.board-share-empty (t :board/no-users)])]
+   [:div.board-share-group
+    [:span.board-share-caption (t :board/agents)]
+    (if (seq agents)
+      (doall
+       (for [a agents]
+         (let [active? (contains? @agent-ids (:id a))
+               toggle #(swap! agent-ids (if active? disj conj) (:id a))]
+           [:label.board-chip {:class (when active? "active")}
+            [:input {:type "checkbox" :checked active? :on-change toggle}]
+            [:span (:name a)]])))
+      [:span.board-share-empty (t :board/no-agents)])]])
             [:div.confirm-modal-actions
              [:button.btn-cancel {:on-click #(reset! create-board-open false)}
               (t :common/cancel)]
@@ -1098,7 +1112,7 @@
               {:disabled (empty? @name)
                :on-click (fn []
                            (rf/dispatch [:create-board @name @type
-                                         (vec @group-ids) (vec @user-ids)])
+                                         (vec @group-ids) (vec @user-ids) (vec @agent-ids)])
                            (reset! create-board-open false)
                            (reset! name ""))}
               (t :board/create)]]]])))))
@@ -1567,6 +1581,9 @@
           author [user-link author]
           (:user_id comment) [:span (str (t :ticket/user-prefix) (:user_id comment))]
           :else [:span (t :user/deleted)]))]
+    (when (:agent_id comment)
+      (let [agent (get @(rf/subscribe [:agent-map]) (:agent_id comment))]
+        [:span.comment-agent "[" (:name agent) "]"]))
     [:span.comment-date (format-date (:created_at comment))]]
    [:div.comment-body
     {:dangerouslySetInnerHTML
@@ -1658,15 +1675,20 @@
 
 (defn activity-item [item user-map]
   (let [details (parse-activity-details item)
+        agent-map @(rf/subscribe [:agent-map])
         actor (get user-map (:user_id item))
+        agent (when (:agent_id item) (get agent-map (:agent_id item)))
         actor-component (cond
                           actor [user-link actor]
                           (:user_id item) [:span (str (t :ticket/user-prefix) (:user_id item))]
                           :else [:span (t :user/deleted)])
+        agent-component (when (:agent_id item)
+                          [:span.activity-agent "[" (:name agent) "]"])
         action-content (activity-action-content item details actor-component)]
     ^{:key (:id item)}
     [:div.activity-item
      (into [:span.activity-action] action-content)
+     agent-component
      [:span.activity-date (format-date (:created_at item))]]))
 
 (defn activity-tab []
@@ -2037,6 +2059,24 @@
       [language-switcher]
       [user-menu]]]))
 
+(defn agent-key-view [agent]
+  (let [keys @(rf/subscribe [:agent-keys (:id agent)])]
+    (if (empty? keys)
+      [:span.settings-muted (t :settings/no-keys)]
+      (for [k keys]
+        ^{:key (:id k)}
+        [:div.settings-member-row
+         [:span.settings-agent-key-meta
+          (str (t :settings/key-created) " " (format-date (:created_at k)))]
+         [:button.btn-delete.btn-mini
+          {:title (t :settings/revoke-key)
+           :on-click #(rf/dispatch [:show-confirm-modal
+                                    {:title (t :confirm/revoke-key-title)
+                                     :message (t :confirm/revoke-key-message)
+                                     :confirm-label (t :settings/revoke-key)
+                                     :cancel-label (t :ticket/cancel)
+                                     :on-confirm (fn [] (rf/dispatch [:revoke-agent-key (:id agent) (:id k)]))}])}
+          (t :settings/revoke-key)]]))))
 (defn settings-view []
   (fn []
       (let [tab @(rf/subscribe [:settings-tab])
@@ -2051,7 +2091,10 @@
            (t :settings/users)]
           [:button {:class (when (= tab "groups") "active")
                     :on-click #(rf/dispatch [:set-settings-tab "groups"])}
-           (t :settings/groups)]]
+           (t :settings/groups)]
+          [:button {:class (when (= tab "agents") "active")
+                    :on-click #(rf/dispatch [:set-settings-tab "agents"])}
+           (t :settings/agents)]]
          (case tab
            "users"
            [:div.settings-content
@@ -2153,7 +2196,49 @@
                        [:polyline {:points "3 6 5 6 21 6"}]
                        [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
                        [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
-                        [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]]]])]])])])))
+                        [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]]]])]])]
+            "agents"
+            [:div.settings-content
+             [:div.settings-groups-header
+              [:button.btn-new-group
+               {:on-click #(rf/dispatch [:show-agent-create-modal])}
+               (t :settings/new-agent)]]
+             (if (empty? @(rf/subscribe [:agents]))
+               [:p.settings-empty (t :settings/no-agents)]
+               [:table.settings-table
+                [:thead
+                 [:tr
+                  [:th (t :settings/name)]
+                  [:th (t :settings/description)]
+                  [:th (t :settings/api-keys)]
+                  [:th ""]]]
+                [:tbody
+                 (for [agent @(rf/subscribe [:agents])]
+                   ^{:key (:id agent)}
+                   [:tr
+                    [:td (:name agent)]
+                    [:td (:description agent)]
+                    [:td.settings-agent-keys [agent-key-view agent]]
+                    [:td.settings-agent-actions
+                     [:button.btn-new-key
+                      {:title (t :settings/create-key)
+                       :on-click #(rf/dispatch [:create-agent-key (:id agent)
+                                                (fn [resp]
+                                                  (rf/dispatch [:show-key-modal (:id agent) (:token resp)]))])}
+                      (t :settings/create-key)]
+                     [:button.btn-delete
+                      {:title (t :settings/delete)
+                       :on-click #(rf/dispatch [:show-confirm-modal
+                                                {:title (t :confirm/delete-agent-title)
+                                                 :message (str (t :confirm/delete-agent-message) " " (:name agent) "?")
+                                                 :confirm-label (t :settings/delete)
+                                                 :cancel-label (t :ticket/cancel)
+                                                 :on-confirm (fn [] (rf/dispatch [:delete-agent (:id agent)]))}])}
+                      [:svg.trash-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+                       [:polyline {:points "3 6 5 6 21 6"}]
+                       [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
+                       [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
+                       [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]]]])]])])])))
 
 (defn confirm-modal []
   (let [modal @(rf/subscribe [:confirm-modal])]
@@ -2179,6 +2264,59 @@
                          (rf/dispatch [:close-confirm-modal])
                          (when on-confirm (on-confirm)))}
             (or confirm-label (t :settings/delete))]]]]))))
+
+
+(defn agent-create-modal []
+  (let [modal @(rf/subscribe [:agent-create-modal])]
+    (when (:open? modal)
+      [:div.modal-overlay.confirm-overlay
+       {:on-click #(rf/dispatch [:close-agent-create-modal])}
+       [:div.confirm-modal.agent-create-modal
+        {:on-click #(.stopPropagation %)}
+        [:h3.confirm-modal-title (t :settings/new-agent)]
+        [:div.settings-group-name-input
+         [:input.settings-group-name-input
+          {:type "text"
+           :placeholder (t :settings/agent-name-placeholder)
+           :value (:name modal)
+           :on-change #(rf/dispatch [:set-agent-create-name (-> % .-target .-value)])
+           :on-key-down (fn [e]
+                          (when (and (= (.-key e) "Enter") (not (empty? (:name modal))))
+                            (rf/dispatch [:create-agent (:name modal) (:description modal)])
+                            (rf/dispatch [:close-agent-create-modal])))}]]
+        [:textarea.settings-agent-description
+         {:placeholder (t :settings/agent-description-placeholder)
+          :value (:description modal)
+          :on-change #(rf/dispatch [:set-agent-create-description (-> % .-target .-value)])}]
+        [:div.confirm-modal-actions
+         [:button.btn-cancel
+          {:on-click #(rf/dispatch [:close-agent-create-modal])}
+          (t :common/cancel)]
+         [:button.btn-confirm-danger
+          {:disabled (empty? (:name modal))
+           :on-click (fn []
+                       (rf/dispatch [:create-agent (:name modal) (:description modal)])
+                       (rf/dispatch [:close-agent-create-modal]))}
+          (t :settings/create-agent)]]]])))
+
+(defn key-modal []
+  (let [modal @(rf/subscribe [:key-modal])]
+    (when modal
+      [:div.modal-overlay.confirm-overlay
+       {:on-click #(rf/dispatch [:close-key-modal])}
+       [:div.confirm-modal.key-modal
+        {:on-click #(.stopPropagation %)}
+        [:h3.confirm-modal-title (t :settings/new-key)]
+        [:p.confirm-modal-message (t :settings/key-once-hint)]
+        [:input.settings-agent-key-token
+         {:type "text"
+          :readOnly true
+          :value (:token modal)
+          :on-focus (fn [e] (-> e .-target .select))}]
+        [:div.confirm-modal-actions
+         [:button.btn-cancel
+          {:on-click #(rf/dispatch [:close-key-modal])}
+          (t :common/done)]]]])))
 
 (defn- user-dropdown-options
   [options on-select close]
@@ -2325,6 +2463,8 @@
      [confirm-modal]
      [group-members-modal]
      [create-group-modal]
+     [agent-create-modal]
+     [key-modal]
      [insert-url-modal]]))
 
 (defn main-panel []

@@ -19,17 +19,17 @@
 
 ;;; Comment model
 
-(defun create-comment (ticket-id user-id body)
+(defun create-comment (ticket-id user-id body &key agent-id)
   "Create a new comment. Returns the comment ID."
   (db-query
-   "INSERT INTO comments (ticket_id, user_id, body) VALUES ($1, $2, $3) RETURNING id"
-   ticket-id user-id body
+   "INSERT INTO comments (ticket_id, user_id, agent_id, body) VALUES ($1, $2, $3, $4) RETURNING id"
+   ticket-id (sql-null-or user-id) (sql-null-or agent-id) body
    :single))
 
 (defun get-comment-by-id (id)
   "Get comment by ID. Returns plist or nil."
   (let ((results (db-query
-                  "SELECT id, ticket_id, user_id, body, created_at, updated_at
+                  "SELECT id, ticket_id, user_id, agent_id, body, created_at, updated_at
                    FROM comments WHERE id = $1"
                   id :alists)))
     (when results (alist-to-plist (car results)))))
@@ -45,7 +45,7 @@
 (defun list-comments (ticket-id &key (limit 50) (offset 0))
   "List comments for a ticket with pagination."
   (pg-query-params
-   "SELECT id, ticket_id, user_id, body, created_at, updated_at
+   "SELECT id, ticket_id, user_id, agent_id, body, created_at, updated_at
     FROM comments WHERE ticket_id = $1
     ORDER BY created_at DESC
     LIMIT $2 OFFSET $3"

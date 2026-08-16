@@ -129,12 +129,12 @@ jobs:
         shell: bash
         run: |
           cat > src/static-assets.lisp <<'EOF'
-(in-package :focus)
+          (in-package :focus)
 
-;;; Generated stub for CI — static assets are only embedded by `make build`.
-(defparameter *static-assets*
-  '( ))
-EOF
+          ;;; Generated stub for CI — static assets are only embedded by `make build`.
+          (defparameter *static-assets*
+            '( ))
+          EOF
 
       - name: Run migrations
         shell: bash

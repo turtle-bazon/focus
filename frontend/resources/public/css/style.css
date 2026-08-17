@@ -1693,6 +1693,58 @@ body {
   font-size: 12px;
 }
 
+.settings-agent-actions {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.settings-agent-actions button {
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.settings-agent-actions button:last-child {
+  margin-right: 0;
+}
+
+.settings-agent-keys {
+  vertical-align: middle;
+  min-width: 220px;
+}
+
+.settings-agent-keys-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.settings-agent-key {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.settings-agent-key-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-agent-key-prefix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #e2e8f0;
+}
+
+.settings-agent-key-meta {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 .settings-muted {
   color: #64748b;
   font-style: italic;
@@ -1718,6 +1770,25 @@ body {
 
 .btn-delete:hover {
   background: #ef4444;
+  color: white;
+}
+
+.btn-new-key {
+  background: none;
+  border: 1px solid #3b82f6;
+  color: #3b82f6;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-new-key:hover {
+  background: #3b82f6;
   color: white;
 }
 
@@ -1813,6 +1884,11 @@ body {
   max-width: 440px;
 }
 
+.agent-create-modal {
+  max-width: 440px;
+  text-align: left;
+}
+
 .settings-group-name-input {
   width: 100%;
   box-sizing: border-box;
@@ -1826,6 +1902,26 @@ body {
 }
 
 .settings-group-name-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.settings-agent-description {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  margin-top: 12px;
+  resize: vertical;
+  min-height: 72px;
+}
+
+.settings-agent-description:focus {
   outline: none;
   border-color: #3b82f6;
 }
@@ -2183,10 +2279,60 @@ body {
   word-break: break-word;
 }
 
+.settings-agent-key-token {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background-color: #0f172a;
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  outline: none;
+}
+
+.settings-agent-key-token:focus {
+  border-color: #3b82f6;
+}
+
+.settings-agent-key-token-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.btn-copy-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border: none;
+  border-radius: 6px;
+  background-color: #334155;
+  color: #e2e8f0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.btn-copy-key:hover {
+  background-color: #475569;
+  color: #ffffff;
+}
+
+.btn-copy-key.copied {
+  background-color: #16a34a;
+  color: #ffffff;
+}
+
+.btn-copy-key.copied:hover {
+  background-color: #15803d;
+}
+
 .confirm-modal-actions {
   display: flex;
   gap: 12px;
   justify-content: center;
+  margin-top: 20px;
 }
 
 .confirm-modal-actions button {

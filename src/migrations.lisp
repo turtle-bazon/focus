@@ -359,4 +359,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_agent ON activity(agent_id);
 
 ALTER TABLE comments ADD COLUMN IF NOT EXISTS agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL;"
 )
+    ("0024-0024-agent-key-prefi"
+     :up "ALTER TABLE agent_keys ADD COLUMN IF NOT EXISTS token_prefix VARCHAR(32);"
+)
 ))

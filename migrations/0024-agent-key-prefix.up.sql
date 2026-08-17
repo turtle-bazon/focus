@@ -1,0 +1,1 @@
+ALTER TABLE agent_keys ADD COLUMN IF NOT EXISTS token_prefix VARCHAR(32);

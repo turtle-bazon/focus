@@ -1,0 +1,1 @@
+ALTER TABLE agent_keys DROP COLUMN IF EXISTS token_prefix;

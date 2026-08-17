@@ -469,7 +469,9 @@
  (fn [{:keys [db]} _]
    (api/fetch-agents
     (fn [response]
-      (rf/dispatch [:set-agents (:agents response)]))
+      (rf/dispatch [:set-agents (:agents response)])
+      (doseq [agent (:agents response)]
+        (rf/dispatch [:fetch-agent-keys (:id agent)])))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to fetch agents: " error)])))
    {:db db}))

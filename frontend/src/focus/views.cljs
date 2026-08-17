@@ -38,6 +38,13 @@
     [:span.lucide-icon
      {:dangerouslySetInnerHTML {:__html svg}}]))
 
+(defn delete-icon []
+  [:svg.trash-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+   [:polyline {:points "3 6 5 6 21 6"}]
+   [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
+   [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
+   [:line {:x1 14 :y1 11 :x2 14 :y2 17}]])
+
 (defn- find-tag-end [html start-pos open-re close-re]
   (loop [pos start-pos
          depth 1]
@@ -1956,8 +1963,7 @@
                                    :placeholder (t :nav/search)}]]))))
 
 (defn language-switcher []
-  (let [locale @(rf/subscribe [:locale])
-        open? (r/atom false)
+  (let [open? (r/atom false)
         ref (r/atom nil)
         on-click-outside
         (fn [e]
@@ -1971,23 +1977,24 @@
       (fn [] (.removeEventListener js/document "mousedown" on-click-outside))
       :reagent-render
       (fn []
-        [:div.language-switcher {:ref #(reset! ref %)
-                                 :class (when @open? "open")}
-         [:button.language-button
-          {:on-click #(swap! open? not)}
-          [:span.language-icon "\u2328"]
-          [:span.language-current (name locale)]]
-         (when @open?
-           [:div.language-dropdown
-            (for [l i18n/supported-locales]
-              ^{:key l}
-              [:button.language-option
-               {:class (when (= l locale) "active")
-                :on-click (fn []
-                            (rf/dispatch [:set-locale l])
-                            (reset! open? false))}
-               [:span.language-code (name l)]
-                [:span.language-name (i18n/locale-display-name l)]])])])})))
+        (let [locale @(rf/subscribe [:locale])]
+          [:div.language-switcher {:ref #(reset! ref %)
+                                   :class (when @open? "open")}
+           [:button.language-button
+            {:on-click #(swap! open? not)}
+            [:span.language-icon "\u2328"]
+            [:span.language-current (name locale)]]
+           (when @open?
+             [:div.language-dropdown
+              (for [l i18n/supported-locales]
+                ^{:key l}
+                [:button.language-option
+                 {:class (when (= l locale) "active")
+                  :on-click (fn []
+                              (rf/dispatch [:set-locale l])
+                              (reset! open? false))}
+                 [:span.language-code (name l)]
+                 [:span.language-name (i18n/locale-display-name l)]])])]))})))
 
 (defn user-menu []
   (let [open? (r/atom false)
@@ -2063,182 +2070,197 @@
   (let [keys @(rf/subscribe [:agent-keys (:id agent)])]
     (if (empty? keys)
       [:span.settings-muted (t :settings/no-keys)]
-      (for [k keys]
-        ^{:key (:id k)}
-        [:div.settings-member-row
-         [:span.settings-agent-key-meta
-          (str (t :settings/key-created) " " (format-date (:created_at k)))]
-         [:button.btn-delete.btn-mini
-          {:title (t :settings/revoke-key)
-           :on-click #(rf/dispatch [:show-confirm-modal
-                                    {:title (t :confirm/revoke-key-title)
-                                     :message (t :confirm/revoke-key-message)
-                                     :confirm-label (t :settings/revoke-key)
-                                     :cancel-label (t :ticket/cancel)
-                                     :on-confirm (fn [] (rf/dispatch [:revoke-agent-key (:id agent) (:id k)]))}])}
-          (t :settings/revoke-key)]]))))
+      [:div.settings-agent-keys-body
+       (for [k keys]
+         ^{:key (:id k)}
+         [:div.settings-agent-key
+          [:div.settings-agent-key-info
+           (when-not (empty? (:token_prefix k))
+             [:span.settings-agent-key-prefix
+              (str (:token_prefix k) "…")])
+           [:span.settings-agent-key-meta
+            (str (t :settings/key-created) " " (format-date (:created_at k)))]]
+          [:button.btn-delete.btn-mini
+           {:title (t :settings/revoke-key)
+            :on-click #(rf/dispatch [:show-confirm-modal
+                                     {:title (t :confirm/revoke-key-title)
+                                      :message (t :confirm/revoke-key-message)
+                                      :confirm-label (t :settings/revoke-key)
+                                      :cancel-label (t :ticket/cancel)
+                                      :on-confirm (fn [] (rf/dispatch [:revoke-agent-key (:id agent) (:id k)]))}])}
+           (t :settings/revoke-key)]])])))
+(defn settings-tabs [tab]
+  [:div.settings-tabs
+   [:button {:class (when (= tab "users") "active")
+             :on-click #(rf/dispatch [:set-settings-tab "users"])}
+    (t :settings/users)]
+   [:button {:class (when (= tab "groups") "active")
+             :on-click #(rf/dispatch [:set-settings-tab "groups"])}
+    (t :settings/groups)]
+   [:button {:class (when (= tab "agents") "active")
+             :on-click #(rf/dispatch [:set-settings-tab "agents"])}
+    (t :settings/agents)]])
+
+(defn settings-user-row [user current-user-id]
+  [:tr
+   [:td (:id user)]
+   [:td (if (:is_deleted user)
+          [:span.settings-deleted-user [:span (:username user)]
+           [:span.settings-deleted-marker (t :user/deleted)]]
+          (:username user))]
+   [:td (:email user)]
+   [:td
+    (if (:is_deleted user)
+      (t :user/deleted)
+      [:select {:value (:role user "user")
+                :on-change #(rf/dispatch [:update-user-role (:id user) (-> % .-target .-value)])}
+       [:option {:value "user"} (t :settings/user)]
+       [:option {:value "group_manager"} (t :settings/group-manager)]
+       [:option {:value "admin"} (t :settings/admin)]])]
+   [:td
+    (cond
+      (= (:id user) current-user-id) nil
+      (:is_deleted user)
+      [:button.btn-restore
+       {:title (t :settings/undelete-user)
+        :on-click #(rf/dispatch [:undelete-user (:id user)])}
+       (t :settings/undelete-user)]
+      :else
+      [:button.btn-delete
+       {:title (t :settings/delete-user)
+        :on-click #(rf/dispatch [:show-confirm-modal
+                                 {:title (t :confirm/delete-user-title)
+                                  :message (str (t :confirm/delete-user-message) " " (:username user) "?")
+                                  :confirm-label (t :settings/delete-user)
+                                  :cancel-label (t :ticket/cancel)
+                                  :on-confirm (fn [] (rf/dispatch [:delete-user (:id user)]))}])}
+       [delete-icon]])]])
+
+(defn settings-users-table [users]
+  (let [current-user-id (get-in @(rf/subscribe [:auth]) [:user :id])]
+    [:div.settings-content
+     [:table.settings-table
+      [:thead
+       [:tr
+        [:th (t :settings/id)]
+        [:th (t :settings/name)]
+        [:th (t :settings/email)]
+        [:th (t :settings/role)]
+        [:th ""]]]
+      [:tbody
+(for [user users]
+         ^{:key (:id user)}
+         [settings-user-row user current-user-id])]]]))
+
+(defn settings-group-members [group group-members]
+  (let [members (get group-members (:id group))]
+    (if (empty? members)
+      [:span.settings-muted (t :settings/no-members)]
+      [:div.settings-group-member-tags
+       (for [member members]
+         ^{:key (:id member)}
+         [:span.settings-member-tag (:username member)])])))
+
+(defn settings-group-row [group group-members]
+  [:tr
+   [:td (:name group)]
+   [:td.settings-group-members [settings-group-members group group-members]]
+   [:td.settings-group-actions
+    [:button.btn-manage-members
+     {:title (t :settings/members)
+      :on-click #(rf/dispatch [:manage-group-members (:id group) (:name group)])}
+     [:svg.group-users-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+      [:path {:d "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"}]
+      [:circle {:cx 9 :cy 7 :r 4}]
+      [:path {:d "M23 21v-2a4 4 0 0 0-3-3.87"}]
+      [:path {:d "M16 3.13a4 4 0 0 1 0 7.75"}]]
+     (str " " (t :settings/members))]
+    [:button.btn-delete
+     {:title (t :settings/delete)
+      :on-click #(rf/dispatch [:show-confirm-modal
+                               {:title (t :confirm/delete-group-title)
+                                :message (str (t :confirm/delete-group-message) " " (:name group) "?")
+                                :confirm-label (t :settings/delete)
+                                :cancel-label (t :ticket/cancel)
+                                :on-confirm (fn [] (rf/dispatch [:delete-group-settings (:id group)]))}])}
+     [delete-icon]]]])
+
+(defn settings-groups-table [groups group-members]
+  [:div.settings-content
+   [:div.settings-groups-header
+    [:button.btn-new-group
+     {:on-click #(rf/dispatch [:open-create-group-modal])}
+     (t :settings/new-group)]]
+   (if (empty? groups)
+     [:p.settings-empty (t :settings/no-groups)]
+     [:table.settings-table
+      [:thead
+       [:tr
+        [:th (t :settings/name)]
+        [:th (t :settings/members)]
+        [:th ""]]]
+      [:tbody
+       (for [group groups]
+         ^{:key (:id group)}
+         [settings-group-row group group-members])]])])
+
+(defn settings-agent-row [agent]
+  [:tr
+   [:td (:name agent)]
+   [:td (:description agent)]
+   [:td.settings-agent-keys [agent-key-view agent]]
+   [:td.settings-agent-actions
+    [:button.btn-new-key
+     {:title (t :settings/create-key)
+      :on-click #(rf/dispatch [:create-agent-key (:id agent)
+                               (fn [resp]
+                                 (rf/dispatch [:show-key-modal (:id agent) (:token resp)]))])}
+     (t :settings/create-key)]
+    [:button.btn-delete
+     {:title (t :settings/delete)
+      :on-click #(rf/dispatch [:show-confirm-modal
+                               {:title (t :confirm/delete-agent-title)
+                                :message (str (t :confirm/delete-agent-message) " " (:name agent) "?")
+                                :confirm-label (t :settings/delete)
+                                :cancel-label (t :ticket/cancel)
+                                :on-confirm (fn [] (rf/dispatch [:delete-agent (:id agent)]))}])}
+     [delete-icon]]]])
+
+(defn settings-agents-table []
+  (let [agents @(rf/subscribe [:agents])]
+    [:div.settings-content
+     [:div.settings-groups-header
+      [:button.btn-new-group
+       {:on-click #(rf/dispatch [:show-agent-create-modal])}
+       (t :settings/new-agent)]]
+     (if (empty? agents)
+       [:p.settings-empty (t :settings/no-agents)]
+       [:table.settings-table
+        [:thead
+         [:tr
+          [:th (t :settings/name)]
+          [:th (t :settings/description)]
+          [:th (t :settings/api-keys)]
+          [:th ""]]]
+        [:tbody
+         (for [agent agents]
+           ^{:key (:id agent)}
+           [settings-agent-row agent])]])]))
+
 (defn settings-view []
   (fn []
-      (let [tab @(rf/subscribe [:settings-tab])
-            users @(rf/subscribe [:users])
-            groups @(rf/subscribe [:groups])
-            group-members @(rf/subscribe [:group-members])]
-        [:div.settings-page
-         [:h1 (t :settings/title)]
-         [:div.settings-tabs
-          [:button {:class (when (= tab "users") "active")
-                    :on-click #(rf/dispatch [:set-settings-tab "users"])}
-           (t :settings/users)]
-          [:button {:class (when (= tab "groups") "active")
-                    :on-click #(rf/dispatch [:set-settings-tab "groups"])}
-           (t :settings/groups)]
-          [:button {:class (when (= tab "agents") "active")
-                    :on-click #(rf/dispatch [:set-settings-tab "agents"])}
-           (t :settings/agents)]]
-         (case tab
-           "users"
-           [:div.settings-content
-            [:table.settings-table
-             [:thead
-              [:tr
-               [:th (t :settings/id)]
-               [:th (t :settings/name)]
-               [:th (t :settings/email)]
-               [:th (t :settings/role)]
-               [:th ""]]]
-              [:tbody
-               (let [current-user-id (get-in @(rf/subscribe [:auth]) [:user :id])]
-                 (for [user users]
-                   ^{:key (:id user)}
-                   [:tr
-                    [:td (:id user)]
-                    [:td (if (:is_deleted user)
-                           [:span.settings-deleted-user [:span (:username user)]
-                            [:span.settings-deleted-marker (t :user/deleted)]]
-                           (:username user))]
-                    [:td (:email user)]
-                    [:td
-                     (if (:is_deleted user)
-                       (t :user/deleted)
-                       [:select {:value (:role user "user")
-                                 :on-change #(rf/dispatch [:update-user-role (:id user) (-> % .-target .-value)])}
-                        [:option {:value "user"} (t :settings/user)]
-                        [:option {:value "group_manager"} (t :settings/group-manager)]
-                        [:option {:value "admin"} (t :settings/admin)]])]
-                    [:td
-                     (cond
-                       (= (:id user) current-user-id) nil
-                       (:is_deleted user)
-                       [:button.btn-restore
-                        {:title (t :settings/undelete-user)
-                         :on-click #(rf/dispatch [:undelete-user (:id user)])}
-                        (t :settings/undelete-user)]
-                       :else
-                       [:button.btn-delete
-                        {:title (t :settings/delete-user)
-                         :on-click #(rf/dispatch [:show-confirm-modal
-                                                  {:title (t :confirm/delete-user-title)
-                                                   :message (str (t :confirm/delete-user-message) " " (:username user) "?")
-                                                   :confirm-label (t :settings/delete-user)
-                                                   :cancel-label (t :ticket/cancel)
-                                                   :on-confirm (fn [] (rf/dispatch [:delete-user (:id user)]))}])}
-                        [:svg.trash-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
-                         [:polyline {:points "3 6 5 6 21 6"}]
-                         [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
-                         [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
-                         [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]])]]))]]]
-            "groups"
-            [:div.settings-content
-             [:div.settings-groups-header
-              [:button.btn-new-group
-               {:on-click #(rf/dispatch [:open-create-group-modal])}
-               (t :settings/new-group)]]
-             (if (empty? groups)
-               [:p.settings-empty (t :settings/no-groups)]
-               [:table.settings-table
-                [:thead
-                 [:tr
-                  [:th (t :settings/name)]
-                  [:th (t :settings/members)]
-                  [:th ""]]]
-                [:tbody
-                 (for [group groups]
-                   ^{:key (:id group)}
-                    [:tr
-                    [:td (:name group)]
-                    [:td.settings-group-members
-                     (let [members (get group-members (:id group))]
-                       (if (empty? members)
-                         [:span.settings-muted (t :settings/no-members)]
-                         [:div.settings-group-member-tags
-                          (for [member members]
-                            ^{:key (:id member)}
-                            [:span.settings-member-tag (:username member)])]))]
-                    [:td.settings-group-actions
-                     [:button.btn-manage-members
-                      {:title (t :settings/members)
-                       :on-click #(rf/dispatch [:manage-group-members (:id group) (:name group)])}
-                      [:svg.group-users-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
-                       [:path {:d "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"}]
-                       [:circle {:cx 9 :cy 7 :r 4}]
-                       [:path {:d "M23 21v-2a4 4 0 0 0-3-3.87"}]
-                       [:path {:d "M16 3.13a4 4 0 0 1 0 7.75"}]]
-                      (str " " (t :settings/members))]
-                     [:button.btn-delete
-                      {:title (t :settings/delete)
-                       :on-click #(rf/dispatch [:show-confirm-modal
-                                                {:title (t :confirm/delete-group-title)
-                                                 :message (str (t :confirm/delete-group-message) " " (:name group) "?")
-                                                 :confirm-label (t :settings/delete)
-                                                 :cancel-label (t :ticket/cancel)
-                                                 :on-confirm (fn [] (rf/dispatch [:delete-group-settings (:id group)]))}])}
-                      [:svg.trash-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
-                       [:polyline {:points "3 6 5 6 21 6"}]
-                       [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
-                       [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
-                        [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]]]])]])]
-            "agents"
-            [:div.settings-content
-             [:div.settings-groups-header
-              [:button.btn-new-group
-               {:on-click #(rf/dispatch [:show-agent-create-modal])}
-               (t :settings/new-agent)]]
-             (if (empty? @(rf/subscribe [:agents]))
-               [:p.settings-empty (t :settings/no-agents)]
-               [:table.settings-table
-                [:thead
-                 [:tr
-                  [:th (t :settings/name)]
-                  [:th (t :settings/description)]
-                  [:th (t :settings/api-keys)]
-                  [:th ""]]]
-                [:tbody
-                 (for [agent @(rf/subscribe [:agents])]
-                   ^{:key (:id agent)}
-                   [:tr
-                    [:td (:name agent)]
-                    [:td (:description agent)]
-                    [:td.settings-agent-keys [agent-key-view agent]]
-                    [:td.settings-agent-actions
-                     [:button.btn-new-key
-                      {:title (t :settings/create-key)
-                       :on-click #(rf/dispatch [:create-agent-key (:id agent)
-                                                (fn [resp]
-                                                  (rf/dispatch [:show-key-modal (:id agent) (:token resp)]))])}
-                      (t :settings/create-key)]
-                     [:button.btn-delete
-                      {:title (t :settings/delete)
-                       :on-click #(rf/dispatch [:show-confirm-modal
-                                                {:title (t :confirm/delete-agent-title)
-                                                 :message (str (t :confirm/delete-agent-message) " " (:name agent) "?")
-                                                 :confirm-label (t :settings/delete)
-                                                 :cancel-label (t :ticket/cancel)
-                                                 :on-confirm (fn [] (rf/dispatch [:delete-agent (:id agent)]))}])}
-                      [:svg.trash-icon {:view-box "0 0 24 24" :width 16 :height 16 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
-                       [:polyline {:points "3 6 5 6 21 6"}]
-                       [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]
-                       [:line {:x1 10 :y1 11 :x2 10 :y2 17}]
-                       [:line {:x1 14 :y1 11 :x2 14 :y2 17}]]]]])]])])])))
+    (let [tab @(rf/subscribe [:settings-tab])
+          users @(rf/subscribe [:users])
+          groups @(rf/subscribe [:groups])
+          group-members @(rf/subscribe [:group-members])]
+      [:div.settings-page
+       [:h1 (t :settings/title)]
+       [settings-tabs tab]
+       (case tab
+         "users" [settings-users-table users]
+         "groups" [settings-groups-table groups group-members]
+         "agents" [settings-agents-table]
+         [:div.settings-content nil])])))
 
 (defn confirm-modal []
   (let [modal @(rf/subscribe [:confirm-modal])]
@@ -2299,24 +2321,42 @@
                        (rf/dispatch [:close-agent-create-modal]))}
           (t :settings/create-agent)]]]])))
 
+(defn- copy-to-clipboard [text]
+  (when-let [cb (.-clipboard js/navigator)]
+    (when (.-writeText cb)
+      (.catch (.writeText cb text) (fn [_])))))
+
 (defn key-modal []
-  (let [modal @(rf/subscribe [:key-modal])]
-    (when modal
-      [:div.modal-overlay.confirm-overlay
-       {:on-click #(rf/dispatch [:close-key-modal])}
-       [:div.confirm-modal.key-modal
-        {:on-click #(.stopPropagation %)}
-        [:h3.confirm-modal-title (t :settings/new-key)]
-        [:p.confirm-modal-message (t :settings/key-once-hint)]
-        [:input.settings-agent-key-token
-         {:type "text"
-          :readOnly true
-          :value (:token modal)
-          :on-focus (fn [e] (-> e .-target .select))}]
-        [:div.confirm-modal-actions
-         [:button.btn-cancel
-          {:on-click #(rf/dispatch [:close-key-modal])}
-          (t :common/done)]]]])))
+  (let [copied? (r/atom false)]
+    (fn []
+      (let [modal @(rf/subscribe [:key-modal])]
+        (when modal
+          [:div.modal-overlay.confirm-overlay
+           {:on-click #(rf/dispatch [:close-key-modal])}
+           [:div.confirm-modal.key-modal
+            {:on-click #(.stopPropagation %)}
+            [:h3.confirm-modal-title (t :settings/new-key)]
+            [:p.confirm-modal-message (t :settings/key-once-hint)]
+            [:div.settings-agent-key-token-row
+             [:input.settings-agent-key-token
+              {:type "text"
+               :readOnly true
+               :value (:token modal)
+               :on-focus (fn [e] (-> e .-target .select))}]
+             [:button.btn-copy-key
+              {:class (when @copied? "copied")
+              :on-click (fn []
+                           (copy-to-clipboard (:token modal))
+                           (reset! copied? true)
+                           (js/setTimeout #(reset! copied? false) 1500))
+               :title (if @copied? (t :settings/copied) (t :settings/copy))}
+              (if @copied?
+                [lucide-icon "Check" {:size 16}]
+                [lucide-icon "Copy" {:size 16}])]]
+            [:div.confirm-modal-actions
+             [:button.btn-cancel
+              {:on-click #(rf/dispatch [:close-key-modal])}
+              (t :common/done)]]]])))))
 
 (defn- user-dropdown-options
   [options on-select close]

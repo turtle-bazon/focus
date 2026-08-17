@@ -81,14 +81,20 @@
 
 (defun hash-agent-key (key)
   "Return the SHA-256 hex digest of KEY."
-  (let ((sha (ironclad:sha256 (ironclad:ascii-string-to-byte-array key))))
+  (let ((sha (ironclad:digest-sequence :sha256
+                                       (ironclad:ascii-string-to-byte-array key))))
     (ironclad:byte-array-to-hex-string sha)))
+
+(defun token-prefix (token)
+  "Return the first 12 characters of TOKEN for display."
+  (subseq token 0 (min 12 (length token))))
 
 (defun create-agent-key (agent-id token)
   "Store a hashed agent key. Returns the key row ID."
   (db-query
-   "INSERT INTO agent_keys (agent_id, token_hash) VALUES ($1, $2) RETURNING id"
-   agent-id (hash-agent-key token)
+   "INSERT INTO agent_keys (agent_id, token_hash, token_prefix)
+    VALUES ($1, $2, $3) RETURNING id"
+   agent-id (hash-agent-key token) (token-prefix token)
    :single))
 
 (defun get-agent-key-token-hash (agent-id token)
@@ -119,13 +125,13 @@
       (car results))))
 
 (defun revoke-agent-key (agent-id key-id)
-  "Revoke a key for an agent."
-  (db-execute "UPDATE agent_keys SET revoked = true WHERE id = $1 AND agent_id = $2"
+  "Delete a key for an agent (revoked keys are hard-deleted)."
+  (db-execute "DELETE FROM agent_keys WHERE id = $1 AND agent_id = $2"
               key-id agent-id))
 
 (defun list-agent-keys (agent-id)
-  "List keys for an agent (without hashes)."
+  "List keys for an agent (with a display prefix)."
   (pg-query-params
-   "SELECT id, agent_id, created_at, last_used_at, revoked
+   "SELECT id, agent_id, token_prefix, created_at, last_used_at, revoked
     FROM agent_keys WHERE agent_id = $1 ORDER BY created_at DESC"
    (list agent-id)))

@@ -241,7 +241,7 @@
     (unless title
       (return-from handle-create-ticket (error-response "Title is required")))
     (let ((board-id (when board-id
-                      (if (stringp board-id) (parse-integer board-id) board-id))))
+                      (if (stringp board-id) (parse-integer board-id) board-id)))))
       (when board-id
         (let ((forbidden (actor-board-access-error env board-id)))
           (when forbidden (return-from handle-create-ticket forbidden))))
@@ -1025,7 +1025,7 @@
           (let ((agent (get-agent-by-id id)))
             (if (and agent (= (getf agent :owner-id) user-id))
                 (json-response `(:agent ,agent))
-                (error-response "Agent not found" 404))))))))
+                (error-response "Agent not found" 404)))))))
 
 (defun handle-update-agent (env)
   "PUT /api/agents/:id"

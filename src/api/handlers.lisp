@@ -508,50 +508,69 @@
 
 (defun handle-list-users (env)
   "GET /api/users"
-  (declare (ignore env))
-  (json-response `(:users ,(list-users))))
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (declare (ignore user-id))
+    (if forbidden
+        forbidden
+        (json-response `(:users ,(list-users))))))
 
 (defun handle-create-user (env)
   "POST /api/users"
-  (bind ((body (parse-json-body env))
-         (username (json-assoc :username body))
-         (email (json-assoc :email body)))
-    (unless username
-      (return-from handle-create-user (error-response "Username is required")))
-    (unless email
-      (return-from handle-create-user (error-response "Email is required")))
-    (bind ((id (create-user username email)))
-      (json-response `(:id ,id) 201))))
+  (multiple-value-bind (user-id forbidden) (require-role-user env '("admin"))
+    (declare (ignore user-id))
+    (when forbidden
+      (return-from handle-create-user forbidden))
+    (bind ((body (parse-json-body env))
+           (username (json-assoc :username body))
+           (email (json-assoc :email body)))
+      (unless username
+        (return-from handle-create-user (error-response "Username is required")))
+      (unless email
+        (return-from handle-create-user (error-response "Email is required")))
+      (bind ((id (create-user username email)))
+        (json-response `(:id ,id) 201)))))
 
 (defun handle-update-user (env)
   "PUT /api/users/:id"
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/users/(\\d+)$")))
-    (if id
-        (bind ((body (parse-json-body env))
-               (username (json-assoc :username body))
-               (email (json-assoc :email body))
-               (role (json-assoc :role body)))
-          (json-response (apply #'update-user id
-                                (append (when username (list :username username))
-                                        (when email (list :email email))
-                                        (when role (list :role role))))))
-        (error-response "Invalid user ID"))))
+  (multiple-value-bind (user-id forbidden) (require-role-user env '("admin"))
+    (declare (ignore user-id))
+    (when forbidden
+      (return-from handle-update-user forbidden))
+    (let ((id (extract-id-from-path (getf env :path-info) "^/api/users/(\\d+)$")))
+      (if id
+          (bind ((body (parse-json-body env))
+                 (username (json-assoc :username body))
+                 (email (json-assoc :email body))
+                 (role (json-assoc :role body)))
+            (json-response (apply #'update-user id
+                                  (append (when username (list :username username))
+                                          (when email (list :email email))
+                                          (when role (list :role role))))))
+          (error-response "Invalid user ID")))))
 
 (defun handle-delete-user (env)
   "DELETE /api/users/:id"
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/users/(\\d+)$")))
-    (if id
-        (progn (delete-user id)
-               (json-response `(:message "User deleted")))
-        (error-response "Invalid user ID"))))
+  (multiple-value-bind (user-id forbidden) (require-role-user env '("admin"))
+    (declare (ignore user-id))
+    (when forbidden
+      (return-from handle-delete-user forbidden))
+    (let ((id (extract-id-from-path (getf env :path-info) "^/api/users/(\\d+)$")))
+      (if id
+          (progn (delete-user id)
+                 (json-response `(:message "User deleted")))
+          (error-response "Invalid user ID")))))
 
 (defun handle-undelete-user (env)
   "POST /api/users/:id/undelete"
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/users/(\\d+)/undelete$")))
-    (if id
-        (progn (undelete-user id)
-               (json-response `(:message "User restored")))
-        (error-response "Invalid user ID"))))
+  (multiple-value-bind (user-id forbidden) (require-role-user env '("admin"))
+    (declare (ignore user-id))
+    (when forbidden
+      (return-from handle-undelete-user forbidden))
+    (let ((id (extract-id-from-path (getf env :path-info) "^/api/users/(\\d+)/undelete$")))
+      (if id
+          (progn (undelete-user id)
+                 (json-response `(:message "User restored")))
+          (error-response "Invalid user ID")))))
 
 ;;; Label handlers
 
@@ -609,17 +628,25 @@
 
 (defun handle-list-groups (env)
   "GET /api/groups"
-  (declare (ignore env))
-  (json-response `(:groups ,(list-groups))))
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (declare (ignore user-id))
+    (if forbidden
+        forbidden
+        (json-response `(:groups ,(list-groups))))))
 
 (defun handle-create-group (env)
   "POST /api/groups"
-  (bind ((body (parse-json-body env))
-         (name (json-assoc :name body)))
-    (unless name
-      (return-from handle-create-group (error-response "Name is required")))
-    (bind ((id (create-group name)))
-      (json-response `(:id ,id) 201))))
+  (multiple-value-bind (user-id forbidden)
+      (require-role-user env '("admin" "group_manager"))
+    (declare (ignore user-id))
+    (when forbidden
+      (return-from handle-create-group forbidden))
+    (bind ((body (parse-json-body env))
+           (name (json-assoc :name body)))
+      (unless name
+        (return-from handle-create-group (error-response "Name is required")))
+      (bind ((id (create-group name)))
+        (json-response `(:id ,id) 201)))))
 
 (defun handle-get-group (env)
   "GET /api/groups/:id"
@@ -633,13 +660,18 @@
 
 (defun handle-update-group (env)
   "PUT /api/groups/:id"
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)$")))
-    (if id
-        (bind ((body (parse-json-body env))
-               (name (json-assoc :name body)))
-          (update-group id :name name)
-          (json-response (get-group-by-id id)))
-        (error-response "Invalid group ID"))))
+  (multiple-value-bind (user-id forbidden)
+      (require-role-user env '("admin" "group_manager"))
+    (declare (ignore user-id))
+    (when forbidden
+      (return-from handle-update-group forbidden))
+    (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)$")))
+      (if id
+          (bind ((body (parse-json-body env))
+                 (name (json-assoc :name body)))
+            (update-group id :name name)
+            (json-response (get-group-by-id id)))
+          (error-response "Invalid group ID")))))
 
 (defun handle-delete-group (env)
   "DELETE /api/groups/:id"
@@ -652,35 +684,49 @@
 
 (defun handle-list-group-members (env)
   "GET /api/groups/:id/members"
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)/members$")))
-    (if id
-        (json-response `(:members ,(list-group-members id)))
-        (error-response "Invalid group ID"))))
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (declare (ignore user-id))
+    (when forbidden
+      (return-from handle-list-group-members forbidden))
+    (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)/members$")))
+      (if id
+          (json-response `(:members ,(list-group-members id)))
+          (error-response "Invalid group ID")))))
 
 (defun handle-add-group-member (env)
   "POST /api/groups/:id/members"
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)/members$")))
-    (if id
-        (bind ((body (parse-json-body env))
-               (user-id (json-assoc :user_id body)))
-          (unless user-id
-            (return-from handle-add-group-member (error-response "User ID is required")))
-          (add-group-member id (if (stringp user-id) (parse-integer user-id) user-id))
-          (json-response `(:message "Member added")))
-        (error-response "Invalid group ID"))))
+  (multiple-value-bind (user-id forbidden)
+      (require-role-user env '("admin" "group_manager"))
+    (declare (ignore user-id))
+    (when forbidden
+      (return-from handle-add-group-member forbidden))
+    (let ((id (extract-id-from-path (getf env :path-info) "^/api/groups/(\\d+)/members$")))
+      (if id
+          (bind ((body (parse-json-body env))
+                 (user-id (json-assoc :user_id body)))
+            (unless user-id
+              (return-from handle-add-group-member (error-response "User ID is required")))
+            (add-group-member id (if (stringp user-id) (parse-integer user-id) user-id))
+            (json-response `(:message "Member added")))
+          (error-response "Invalid group ID")))))
 
 (defun handle-remove-group-member (env)
   "DELETE /api/groups/:id/members/:user_id"
-  (let* ((path (getf env :path-info))
-         (group-id (extract-id-from-path path "^/api/groups/(\\d+)/members/\\d+$"))
-         (user-id-str (ppcre:register-groups-bind (uid)
-                           ("^/api/groups/\\d+/members/(\\d+)$" path)
-                         uid)))
-    (if (and group-id user-id-str)
-        (progn
-          (remove-group-member group-id (parse-integer user-id-str))
-          (json-response `(:message "Member removed")))
-        (error-response "Invalid group or user ID"))))
+  (multiple-value-bind (user-id forbidden)
+      (require-role-user env '("admin" "group_manager"))
+    (declare (ignore user-id))
+    (when forbidden
+      (return-from handle-remove-group-member forbidden))
+    (let* ((path (getf env :path-info))
+           (group-id (extract-id-from-path path "^/api/groups/(\\d+)/members/\\d+$"))
+           (user-id-str (ppcre:register-groups-bind (uid)
+                             ("^/api/groups/\\d+/members/(\\d+)$" path)
+                           uid)))
+      (if (and group-id user-id-str)
+          (progn
+            (remove-group-member group-id (parse-integer user-id-str))
+            (json-response `(:message "Member removed")))
+          (error-response "Invalid group or user ID")))))
 
 ;;; Ticket observer handlers
 
@@ -1007,6 +1053,20 @@
       (user-id (values user-id nil))
       ((get-actor env) (values nil (error-response "Agents cannot manage agents or boards" 403)))
       (t (values nil (error-response "Not authenticated" 401))))))
+
+(defun user-role (user-id)
+  "Return the role of USER-ID (or nil if unknown)."
+  (getf (get-user-by-id user-id) :role))
+
+(defun require-role-user (env roles)
+  "Return the session user ID if its role is in ROLES, or short-circuit
+   with a 401/403 response. Returns (values id response-or-nil)."
+  (multiple-value-bind (user-id forbidden) (require-session-user env)
+    (if forbidden
+        (values nil forbidden)
+        (if (member (user-role user-id) roles :test #'string=)
+            (values user-id nil)
+            (values nil (error-response "Insufficient permissions" 403))))))
 
 (defun handle-list-agents (env)
   "GET /api/agents — list the acting user's agents."

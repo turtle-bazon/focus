@@ -64,6 +64,16 @@
    (get-in db [:agent-keys id] [])))
 
 (rf/reg-sub
+ :board-members
+ (fn [db [_ board-id]]
+   (get-in db [:board-members (or board-id (:current-board-id db))] [])))
+
+(rf/reg-sub
+ :board-agents-open
+ (fn [db _]
+   (:board-agents-open db)))
+
+(rf/reg-sub
  :agent-create-modal
  (fn [db _]
    (:agent-create-modal db)))

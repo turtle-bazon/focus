@@ -1160,12 +1160,17 @@
                                (rf/dispatch [:select-board b]))}
                    [:span.board-dot {:style {:background-color (board-color (:name b))}}]
                   [:span.board-dropdown-label (:name b)]]))
-              [:div.board-dropdown-sep]
-              [:button.board-dropdown-item
-               {:on-click (fn []
-                            (reset! open? false)
-                            (reset! create-board-open true))}
-               [:span.board-dropdown-label (t :board/create)]]
+[:div.board-dropdown-sep]
+               [:button.board-dropdown-item
+                {:on-click (fn []
+                             (reset! open? false)
+                             (reset! create-board-open true))}
+                [:span.board-dropdown-label (t :board/create)]]
+               [:button.board-dropdown-item
+                {:on-click (fn []
+                             (reset! open? false)
+                             (rf/dispatch [:open-board-agents-modal]))}
+                [:span.board-dropdown-label (t :board/agents)]]
               (when can-manage
                 [:button.board-dropdown-item
                  {:on-click (fn []
@@ -2039,6 +2044,40 @@
                  [:span.user-menu-item-icon "\u2192"]
                   (t :nav/logout)]])])))})))
 
+(defn board-agents-modal []
+  (let [open? @(rf/subscribe [:board-agents-open])
+        board @(rf/subscribe [:current-board])
+        members @(rf/subscribe [:board-members (:id board)])
+        agents @(rf/subscribe [:agents])
+        agent-members (filter #(= (:member_type %) "agent") members)
+        member-ids (into #{} (map :member_id) agent-members)
+        candidates (remove #(contains? member-ids (:id %)) agents)]
+    (when open?
+      [:div.modal-overlay.confirm-overlay
+       {:on-click #(rf/dispatch [:close-board-agents-modal])}
+       [:div.confirm-modal.group-members-modal
+        {:on-click #(.stopPropagation %)}
+        [:h3.confirm-modal-title (t :board/agents)]
+        (if (seq agent-members)
+          [:div.settings-members-list
+           (for [m agent-members]
+             ^{:key (str (:member_type m) "-" (:member_id m))}
+             [:div.settings-member-row
+              [:span.settings-member-name
+               (or (:name m) (str (:member_id m)))]
+              [:button.btn-delete.btn-mini
+               {:title (t :settings/remove-member)
+                :on-click #(rf/dispatch [:remove-board-member "agent" (:member_id m)])}
+               [delete-icon]]])]
+          [:p.confirm-modal-message (t :board/no-agents)])
+        [:div.settings-members-add
+         [user-dropdown
+          {:options candidates
+           :placeholder (t :board/select-agent)
+           :label-fn (fn [a] (:name a))
+           :on-select (fn [agent]
+                        (rf/dispatch [:add-board-member "agent" (:id agent)]))}]]]])))
+
 (defn nav-bar []
   (let [current-view @(rf/subscribe [:current-view])
         board-id (:id @(rf/subscribe [:current-board]))]
@@ -2061,7 +2100,8 @@
        (t :nav/all-activity)]
       [create-ticket-modal]
       [create-board-modal]
-      [lifecycle-editor]]
+      [lifecycle-editor]
+      [board-agents-modal]]
      [:div.nav-auth
       [language-switcher]
       [user-menu]]]))
@@ -2359,7 +2399,7 @@
               (t :common/done)]]]])))))
 
 (defn- user-dropdown-options
-  [options on-select close]
+  [options label-fn on-select close]
   (if (empty? options)
     [:div.settings-user-picker.empty (t :settings/no-members)]
     [:div.settings-user-picker
@@ -2369,16 +2409,23 @@
         {:on-click (fn []
                      (close)
                      (on-select opt))}
-        (:username opt)])]))
+        (label-fn opt)])]))
 
 (defn user-dropdown
-  [{:keys [options on-select placeholder]}]
+  [{:keys [options on-select placeholder label-fn]}]
   (let [open? (r/atom false)
         wrap (r/atom nil)
+        filter-query (r/atom "")
+        label-fn (or label-fn :username)
         outside-handler
         (fn [e]
           (when (and @open? @wrap (not (.contains @wrap (.-target e))))
-            (reset! open? false)))]
+            (reset! open? false)))
+        toggle (fn []
+                 (if @open?
+                   (reset! open? false)
+                   (do (reset! filter-query "")
+                       (reset! open? true))))]
     (r/create-class
      {      :component-did-mount
       (fn [_]
@@ -2388,19 +2435,30 @@
         (.removeEventListener js/document "mousedown" outside-handler))
       :reagent-render
       (fn [{:keys [options on-select placeholder]}]
-        [:div.settings-user-picker-wrap
-         {:ref #(reset! wrap %)
-          :class (when @open? "open")}
-         [:button.settings-user-picker-btn
-          {:type "button"
-           :on-click #(swap! open? not)}
-          [:span (or placeholder (t :settings/select-user))]
-          [:svg.chevron-icon {:view-box "0 0 24 24" :width 14 :height 14 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
-           [:polyline {:points "6 9 12 15 18 9"}]]]
-         (when @open?
-           [user-dropdown-options options
-            (fn [opt] (on-select opt))
-            (fn [] (reset! open? false))])])})))
+        (let [q (str/lower-case @filter-query)
+              filtered (if (empty? q)
+                         options
+                         (filterv #(str/includes? (str/lower-case (label-fn %)) q) options))]
+          [:div.settings-user-picker-wrap
+           {:ref #(reset! wrap %)
+            :class (when @open? "open")}
+           [:button.settings-user-picker-btn
+            {:type "button"
+             :on-click toggle}
+            [:span (or placeholder (t :settings/select-user))]
+            [:svg.chevron-icon {:view-box "0 0 24 24" :width 14 :height 14 :fill "none" :stroke "currentColor" :stroke-width 2 :stroke-linecap "round" :stroke-linejoin "round"}
+             [:polyline {:points "6 9 12 15 18 9"}]]]
+           (when @open?
+             [:div.settings-user-picker-panel
+              (when (> (count options) 5)
+                [:input.settings-user-picker-filter
+                 {:type "text"
+                  :placeholder (t :settings/filter)
+                  :value @filter-query
+                  :on-change #(reset! filter-query (-> % .-target .-value))}])
+              [user-dropdown-options filtered label-fn
+               (fn [opt] (on-select opt))
+               (fn [] (reset! open? false))]])]))})))
 
 (defn group-members-modal []
   (let [modal @(rf/subscribe [:group-members-modal])

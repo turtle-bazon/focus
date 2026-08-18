@@ -753,6 +753,17 @@
   (unless (can-manage-board board-id user-id)
     (error-response "You don't have permission to modify this board" 403)))
 
+(defun board-member-change-permitted (env board-id member-type member-id user-id)
+  "Return NIL if the actor may add/remove MEMBER-TYPE/MEMBER-ID on BOARD-ID,
+   or a 403 response otherwise. Any user may manage their own agents on boards
+   they can access; all other member types require board management rights."
+  (if (and (string= member-type "agent") user-id)
+      (or (board-visibility-response env)
+          (let ((agent (get-agent-by-id member-id)))
+            (unless (and agent (= (getf agent :owner-id) user-id))
+              (error-response "You can only manage your own agents" 403))))
+      (board-manage-error board-id user-id)))
+
 (defun handle-list-boards (env)
   "GET /api/boards"
   (let* ((actor (get-actor env))
@@ -840,22 +851,22 @@
         (error-response "Invalid board ID"))))
 
 (defun handle-add-board-member (env)
-  "POST /api/boards/:id/members"
+  "POST /api/boards/:id/members — managers may add any member; any user may
+   add their own agents to a board they can access."
   (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)/members$")))
     (if id
         (let ((user-id (get-user-id-from-env env)))
-          (let ((forbidden (board-manage-error id user-id)))
-            (when forbidden (return-from handle-add-board-member forbidden)))
           (bind ((body (parse-json-body env))
                  (member-type (json-assoc :member_type body))
                  (member-id (json-assoc :member_id body)))
             (unless (and member-type member-id)
               (return-from handle-add-board-member
                 (error-response "member_type and member_id are required")))
-            (ensure-board-member id
-                                 member-type
-                                 (if (stringp member-id) (parse-integer member-id) member-id))
-            (json-response `(:message "Member added"))))
+            (let ((member-id (if (stringp member-id) (parse-integer member-id) member-id)))
+              (let ((forbidden (board-member-change-permitted env id member-type member-id user-id)))
+                (when forbidden (return-from handle-add-board-member forbidden)))
+              (ensure-board-member id member-type member-id)
+              (json-response `(:message "Member added")))))
         (error-response "Invalid board ID"))))
 
 (defun handle-remove-board-member (env)
@@ -868,7 +879,8 @@
                          (when member-id (parse-integer member-id))))))
     (if (and board-id (second parts) (third parts))
         (let ((user-id (get-user-id-from-env env)))
-          (let ((forbidden (board-manage-error (first parts) user-id)))
+          (let ((forbidden (board-member-change-permitted
+                            env (first parts) (second parts) (third parts) user-id)))
             (when forbidden (return-from handle-remove-board-member forbidden)))
           (remove-board-member (first parts) (second parts) (third parts))
           (json-response `(:message "Member removed")))

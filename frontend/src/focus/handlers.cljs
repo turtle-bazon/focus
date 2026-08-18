@@ -69,11 +69,13 @@
     :labels []
     :groups []
     :group-members {}
+    :board-members {}
     :ticket-observers {}
     :boards []
     :current-board-id nil
     :current-board nil
     :loaded-board-id nil
+    :board-agents-open false
     :current-ticket nil
     :comments []
     :comments-total 0
@@ -1272,11 +1274,42 @@
      {:db db})))
 
 (rf/reg-event-fx
+ :fetch-board-members
+ (fn [{:keys [db]} [_ board-id]]
+   (let [id (or board-id (:current-board-id db))]
+     (when id
+       (api/fetch-board-members id
+        (fn [response]
+          (rf/dispatch [:set-board-members id (:members response)]))
+        (fn [error]
+          (rf/dispatch [:set-error (str "Failed to fetch board members: " error)]))))
+     {:db db})))
+
+(rf/reg-event-db
+ :set-board-members
+ (fn [db [_ board-id members]]
+   (assoc-in db [:board-members board-id] members)))
+
+(rf/reg-event-fx
+ :open-board-agents-modal
+ (fn [{:keys [db]} _]
+   (let [board-id (:current-board-id db)]
+     (rf/dispatch [:fetch-agents])
+     (rf/dispatch [:fetch-board-members board-id])
+     {:db (assoc db :board-agents-open true)})))
+
+(rf/reg-event-db
+ :close-board-agents-modal
+ (fn [db _]
+   (assoc db :board-agents-open false)))
+
+(rf/reg-event-fx
  :add-board-member
  (fn [{:keys [db]} [_ member-type member-id]]
    (api/add-board-member (:current-board-id db) member-type member-id
     (fn []
-      (rf/dispatch [:fetch-current-board (:current-board-id db) true]))
+      (rf/dispatch [:fetch-current-board (:current-board-id db) true])
+      (rf/dispatch [:fetch-board-members (:current-board-id db)]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to add member: " error)])))
    {:db db}))
@@ -1286,7 +1319,8 @@
  (fn [{:keys [db]} [_ member-type member-id]]
    (api/remove-board-member (:current-board-id db) member-type member-id
     (fn []
-      (rf/dispatch [:fetch-current-board (:current-board-id db) true]))
+      (rf/dispatch [:fetch-current-board (:current-board-id db) true])
+      (rf/dispatch [:fetch-board-members (:current-board-id db)]))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to remove member: " error)])))
    {:db db}))

@@ -170,9 +170,15 @@
 ;;; Board membership
 
 (defun list-board-members (board-id)
-  "List members of a board."
+  "List members of a board with their display names."
   (pg-query-params
-   "SELECT member_type, member_id FROM board_members WHERE board_id = $1"
+   "SELECT bm.member_type, bm.member_id,
+           COALESCE(a.name, u.username, g.name) AS name
+    FROM board_members bm
+    LEFT JOIN agents a ON bm.member_type = 'agent' AND a.id = bm.member_id
+    LEFT JOIN users u ON bm.member_type = 'user' AND u.id = bm.member_id
+    LEFT JOIN groups g ON bm.member_type = 'group' AND g.id = bm.member_id
+    WHERE bm.board_id = $1"
    (list board-id)))
 
 (defun ensure-board-member (board-id member-type member-id)

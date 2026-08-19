@@ -8,8 +8,9 @@ focus/
 ├── docs/                   # Project documentation
 ├── Makefile                # build / run / test / generate targets
 ├── focus.asd               # Main ASDF system
+├── focus-cli.asd           # Remote CLI (focus-cli) ASDF system
 ├── focus-tests.asd         # Test ASDF system
-├── build.lisp              # Binary build script (save-lisp-and-die)
+├── build.lisp              # Binary build script (build/focus + build/focus-cli)
 ├── migrations/             # SQL migrations (0001..0021)
 ├── src/
 │   ├── package.lisp        # Package definition + exports
@@ -29,7 +30,8 @@ focus/
 │   │   ├── auth.lisp       # OAuth2 / session auth
 │   │   └── handlers.lisp   # API handlers
 │   └── cli/
-│       └── commands.lisp   # Clingon CLI (not wired into main)
+│       ├── commands.lisp   # Clingon CLI (not wired into main)
+│       └── remote.lisp     # focus-cli: remote REST client (separate binary)
 ├── t/
 │   ├── package.lisp
 │   ├── api-tests.lisp
@@ -111,10 +113,27 @@ focus/
                    :components ((:file "routes")
                                 (:file "auth")
                                 (:file "handlers")))
-                  (:module "cli"
-                   :components ((:file "commands")))
+(:module "cli"
+                    :components ((:file "commands")
+                                 (:file "remote")))
                   (:file "main")))))
 ```
+
+```lisp
+(defsystem :focus-cli
+  :name "focus-cli"
+  :license "GPL-3.0-or-later"
+  :version "0.0.1.3"
+  :description "Remote command-line ticket client for Focus"
+  :depends-on (#:focus)
+  :build-operation "program-op"
+  :build-pathname "build/focus-cli"
+  :entry-point "focus:remote-main")
+```
+
+It depends on `#:focus`; `src/cli/remote.lisp` is already part of `focus.asd`,
+so the system needs no `:components` of its own — `program-op` just saves a
+separate image whose entry point is `focus:remote-main`.
 
 ## Test System
 

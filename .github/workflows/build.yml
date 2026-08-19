@@ -67,18 +67,19 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          echo "required GLIBC: $(objdump -T build/focus | grep -o 'GLIBC_[0-9.]*' | sort -V | uniq | tail -1)"
-          ldd build/focus
+          for BIN in build/focus build/focus-cli; do
+            echo "$BIN required GLIBC: $(objdump -T "$BIN" | grep -o 'GLIBC_[0-9.]*' | sort -V | uniq | tail -1)"
+            ldd "$BIN"
+          done
 
       - name: Smoke test
         shell: bash
         run: |
-          BIN=build/focus
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            BIN=build/focus.exe
-          fi
-          "$BIN" --version
-          "$BIN" --help
+          for BIN in build/focus build/focus-cli; do
+            echo "== smoke: $BIN"
+            "$BIN" --version
+            "$BIN" --help
+          done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -175,8 +176,10 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           mkdir -p release-assets
-          find linux   -type f -name 'focus*' -exec cp {} release-assets/focus-linux-x86_64 \;
-          find macos   -type f -name 'focus*' -exec cp {} release-assets/focus-macos \;
+          cp linux/focus         release-assets/focus-linux-x86_64
+          cp linux/focus-cli     release-assets/focus-cli-linux-x86_64
+          cp macos/focus         release-assets/focus-macos
+          cp macos/focus-cli     release-assets/focus-cli-macos
           ls -laR release-assets
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/* --clobber

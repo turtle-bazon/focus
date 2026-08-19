@@ -3,7 +3,7 @@
 ## Targets
 
 ```bash
-make build          # Build binary to build/focus
+make build          # Build binaries: build/focus and build/focus-cli
 make dev-start      # Run in background (nohup ./build/focus)
 make dev-stop       # Stop background process
 make clean          # Remove build/
@@ -14,11 +14,13 @@ make generate-static      # Regenerate src/static-assets.lisp from build/static/
 
 `build` runs `clean prepare frontend generate-static` then invokes
 `sbcl --non-interactive --load build.lisp`, which quickloads `:focus` and
-calls `(asdf:make "focus")`. The system's `program-op` (`:build-operation`,
-`:build-pathname`, `:entry-point` in `focus.asd`) produces the executable
-`build/focus`. `BUILD_SUFFIX` is honored for the output name.
+calls `(asdf:make "focus")` followed by `(asdf:make "focus-cli")`. Each
+system's `program-op` (`:build-operation`, `:build-pathname`, `:entry-point`)
+produces an executable: `build/focus` (web server + local CLI) and
+`build/focus-cli` (remote REST client). `BUILD_SUFFIX` is honored for the
+`focus` output name.
 
-The binary is embedded and self-contained: static is baked into the image,
+The binaries are embedded and self-contained: static is baked into the image,
 so no `static-dir` config and no runtime filesystem reads are needed.
 
 ## Install as a systemd service

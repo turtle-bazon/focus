@@ -12,7 +12,7 @@ real time over WebSocket.
 | Server | Clack + Wookie |
 | Database | PostgreSQL |
 | WebSocket | websocket-driver |
-| CLI | Clingon (`src/cli/commands.lisp`, root handler is the web server) |
+| CLI | Clingon — `focus` (`src/cli/commands.lisp`, root handler is the web server); `focus-cli` (`src/cli/remote.lisp`, REST client) |
 | Frontend | ClojureScript + Reagent (re-frame) |
 | Hot reload | nREPL (port 5000) |
 | Build | Makefile + ASDF `program-op` |
@@ -112,6 +112,46 @@ Note: subcommands connect directly to the PostgreSQL database configured in
 `focus.conf` — run them on the same host as the server. API keys (`focusN-...`)
 are shown only once, so store them securely; agents authenticate against the
 REST API with `Authorization: Bearer <key>`.
+
+## Remote CLI (`focus-cli`)
+
+`focus-cli` is a second binary defined in `src/cli/remote.lisp`. It talks to
+the server's REST API using a stored agent API key (`Authorization: Bearer`),
+has **no database access**, and runs from any machine. Its config lives in
+`~/.focus-cli`; bootstrap it with `focus agent init`/`focus agent use` (above),
+or manually:
+
+```bash
+focus-cli configure --server http://host:8080 --key "focusN-..." \
+                    [--agent ID] [--board ID]
+focus-cli status                 # review stored server/agent/board/key
+
+focus-cli list [--status open] [--priority high] [--assignee ID] [--board ID]
+               [--limit N] [--page N] [--search QUERY] [--json]
+focus-cli show 123 [--json]
+
+focus-cli create --title "Bug report" --description "Details..." \
+                 [--priority high] [--status open] [--board ID] [--assignee ID]
+                 [--color "#e74c3c"]
+focus-cli update 123 [--title ...] [--description ...] [--status closed]
+                     [--priority low] [--assignee ID] [--color ...]
+focus-cli delete 123
+
+focus-cli comment add 123 --body "Looking into it"
+focus-cli comment list 123
+focus-cli comment delete 123 456
+
+focus-cli label list
+focus-cli label add 123 2
+focus-cli label remove 123 2
+
+focus-cli board list
+```
+
+`list`/`create` default to the board stored in `~/.focus-cli`; `comment add`
+acts as the stored agent. Unlike `focus`, the remote CLI supports only ticket,
+comment, label, and board operations — agent management stays on the server
+host with `focus agent ...`.
 
 ## Docs Index
 

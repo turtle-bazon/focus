@@ -50,7 +50,8 @@
                                 (:file "auth")
                                 (:file "handlers")))
 (:module "cli"
-                    :components ((:file "commands")))
+                    :components ((:file "commands")
+                                 (:file "remote")))
                    (:file "main"))))
   :build-operation "program-op"
   :build-pathname "build/focus"

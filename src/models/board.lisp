@@ -37,6 +37,13 @@
   (let ((role (user-role user-id)))
     (member role '("admin" "group_manager") :test #'string=)))
 
+(defun list-all-boards ()
+  "List every board."
+  (pg-query-params
+   "SELECT id, name, type, is_default, owner_id, created_at
+    FROM boards ORDER BY is_default DESC, name"
+   '()))
+
 (defun list-visible-boards (user-id)
   "Boards visible to a user: default board, boards where the user (or a group
    they belong to) is a member, boards they own. Admins/managers see all.

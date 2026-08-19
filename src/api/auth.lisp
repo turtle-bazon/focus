@@ -21,14 +21,25 @@
 
 (defvar *oauth2-client* nil)
 
+(defun authorization-header-from-env (env)
+  "Return the Authorization header value from ENV, or nil. Accepts the
+   flattened :authorization key and a :headers hash-table/alist with a
+   lowercase \"authorization\" entry (Clack/Wookie convention)."
+  (or (getf env :authorization)
+      (getf (getf env :mode) :authorization)
+      (let ((headers (getf env :headers)))
+        (when headers
+          (if (hash-table-p headers)
+              (gethash "authorization" headers)
+              (cdr (assoc "authorization" headers :test #'string=)))))))
+
 (defun bearer-token-from-env (env)
   "Extract a bearer token from the Authorization header, or nil."
-  (let ((auth (or (getf env :authorization)
-                  (getf (getf env :mode) :authorization))))
+  (let ((auth (authorization-header-from-env env)))
     (when (and auth (typep auth 'string))
       (let ((trimmed (string-trim " " auth)))
         (when (>= (length trimmed) 7)
-          (let ((scheme (subseq trimmed 0 (min 7 (length trimmed)))))
+          (let ((scheme (subseq trimmed 0 (min 6 (length trimmed)))))
             (when (and (string-equal scheme "Bearer")
                        (> (length trimmed) 7))
               (string-trim " " (subseq trimmed 7)))))))))

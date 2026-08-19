@@ -1,4 +1,4 @@
-;;; focus — ticket tracker
+;;; focus-cli — remote command-line client for Focus.
 ;;; Copyright (C) 2026 Azamat S. Kalimoulline <turtle@bazon.ru>
 ;;;
 ;;; This program is free software: you can redistribute it and/or modify
@@ -15,16 +15,12 @@
 ;;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ;;;
 
-(defparameter *project-name* "focus")
-
-(push :binary *features*)
-(push (merge-pathnames #P"internal-libs/cl-oauth2/"
-                       *default-pathname-defaults*)
-      asdf:*central-registry*)
-(ql:quickload *project-name*)
-(ensure-directories-exist "build")
-(asdf:make *project-name*)
-(asdf:make "focus-cli")
-(let ((suffix (uiop:getenv "BUILD_SUFFIX")))
-  (when (and suffix (plusp (length suffix)))
-    (rename-file #P"build/focus" (format nil "build/focus~a" suffix))))
+(defsystem :focus-cli
+  :name "focus-cli"
+  :license "GPL-3.0-or-later"
+  :version "0.0.1.3"
+  :description "Remote command-line ticket client for Focus"
+  :depends-on (#:focus)
+  :build-operation "program-op"
+  :build-pathname "build/focus-cli"
+  :entry-point "focus:remote-main")

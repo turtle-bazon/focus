@@ -33,6 +33,11 @@
 (defun start-server (cmd)
   "Bootstrap the database and run the web server."
   (setf *random-state* (make-random-state t))
+  (let ((args (clingon:command-arguments cmd)))
+    (when args
+      (format t "Unknown command: ~{~a~^ ~}~%" args)
+      (clingon:print-usage cmd t)
+      (uiop:quit 1)))
   (let ((config (read-config (find-config))))
     (setf *config* config)
     ;; Configure logging

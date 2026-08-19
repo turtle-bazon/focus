@@ -100,11 +100,11 @@
 (defun get-agent-key-token-hash (agent-id token)
   "Check if TOKEN is a valid, non-revoked key for AGENT-ID.
    Returns the key row plist or nil, and touches last_used_at."
-  (let ((hash (hash-agent-key token))
-        (results (pg-query-params
-                  "SELECT id, agent_id, token_hash, created_at, last_used_at, revoked
-                   FROM agent_keys WHERE agent_id = $1 AND token_hash = $2 AND NOT revoked"
-                  (list agent-id hash))))
+  (let* ((hash (hash-agent-key token))
+         (results (pg-query-params
+                   "SELECT id, agent_id, token_hash, created_at, last_used_at, revoked
+                    FROM agent_keys WHERE agent_id = $1 AND token_hash = $2 AND NOT revoked"
+                   (list agent-id hash))))
     (when results
       (db-execute "UPDATE agent_keys SET last_used_at = NOW() WHERE id = $1"
                   (getf (car results) :id))
@@ -112,17 +112,17 @@
 
 (defun find-agent-by-key (token)
   "Resolve TOKEN to an agent. Returns agent plist or nil."
-  (let ((hash (hash-agent-key token))
-        (results (pg-query-params
-                  "SELECT a.id, a.owner_id, a.name, a.description, a.created_at
-                   FROM agents a
-                   JOIN agent_keys k ON k.agent_id = a.id
-                   WHERE k.token_hash = $1 AND NOT k.revoked"
-                  (list hash))))
+  (let* ((hash (hash-agent-key token))
+         (results (pg-query-params
+                   "SELECT a.id, a.owner_id, a.name, a.description, a.created_at
+                    FROM agents a
+                    JOIN agent_keys k ON k.agent_id = a.id
+                    WHERE k.token_hash = $1 AND NOT k.revoked"
+                   (list hash))))
     (when results
       (db-execute "UPDATE agent_keys SET last_used_at = NOW()
                    WHERE token_hash = $1 AND NOT revoked" hash)
-      (car results))))
+      (hyphenate-plist-keys (car results)))))
 
 (defun revoke-agent-key (agent-id key-id)
   "Delete a key for an agent (revoked keys are hard-deleted)."

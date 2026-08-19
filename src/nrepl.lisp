@@ -34,24 +34,32 @@
         (write-string output stream)
         (force-output stream)))))
 
+(defun nrepl-read-respond (stream)
+  "Read one line from STREAM and respond. Returns NIL on EOF; errors are
+   reported but do not end the client session."
+  (let ((line (read-line stream nil nil)))
+    (when line
+      (let ((trimmed (string-trim '(#\Space #\Tab #\Newline #\Return) line)))
+        (when (> (length trimmed) 0)
+          (handler-case
+              (let ((result (eval (read-from-string trimmed))))
+                (format stream "~s~%" result)
+                (force-output stream))
+            (error (e)
+              (ignore-errors (format stream "ERROR: ~a~%" e)))))
+t))))
+
 (defun nrepl-handle-client (stream)
   "Handle a single nREPL client connection."
   (unwind-protect
-      (iter (while t)
-        (write-string "nREPL> " stream)
-        (force-output stream)
-        (bind ((line (read-line stream nil nil)))
-          (unless line (return nil))
-          (bind ((trimmed (string-trim '(#\Space #\Tab #\Newline #\Return) line)))
-            (when (> (length trimmed) 0)
-              (handler-case
-                  (bind ((expr (read-from-string trimmed))
-                         (result (eval expr)))
-                    (format stream "~s~%" result)
-                    (force-output stream))
-                (error (e)
-                  (format stream "ERROR: ~a~%" e)
-                  (force-output stream)))))))
+      (iter (while (handler-case
+                       (progn
+                         (write-string "nREPL> " stream)
+                         (force-output stream)
+                         (nrepl-read-respond stream))
+                     (error (e)
+                       (ignore-errors (format stream "ERROR: ~a~%" e))
+                       nil))))
     (ignore-errors (close stream))))
 
 (defun start-nrepl (port &key (interface "127.0.0.1"))

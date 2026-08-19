@@ -82,6 +82,16 @@
       (collecting (intern (string-upcase (car pair)) :keyword))
       (collecting (if (eq (cdr pair) :null) nil (cdr pair))))))
 
+(defun hyphenate-plist-keys (plist)
+  "Return PLIST with underscores in keyword keys replaced by hyphens, to
+   match the app-wide keyword convention (:owner-id, :created-at)."
+  (when plist
+    (iter (for (key val) on plist by #'cddr)
+      (collecting (if (keywordp key)
+                      (intern (substitute #\- #\_ (string key)) :keyword)
+                      key))
+      (collecting val))))
+
 (defun pg-query-params (sql params)
   "Execute a parameterized query on PostgreSQL.
 SQL uses $1, $2, etc. PARAMS is a list of values. Returns rows as plists."

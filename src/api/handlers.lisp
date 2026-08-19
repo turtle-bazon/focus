@@ -106,12 +106,32 @@
         (when (> (length content) 0)
           (normalize-json-body (cl-json:decode-json-from-string content)))))))
 
+(defun percent-decode (str)
+  "Decode percent-encoded octets in STR (e.g. '%20' -> space)."
+  (when str
+    (let ((out (make-array (length str) :element-type 'character :fill-pointer 0)))
+      (iter (for i from 0 below (length str))
+        (let ((ch (char str i)))
+          (if (and (char= ch #\%)
+                   (< (+ i 2) (length str)))
+              (let ((hex (parse-integer (subseq str (1+ i) (+ i 3))
+                                        :radix 16 :junk-allowed t)))
+                (if hex
+                    (progn
+                      (vector-push-extend (code-char hex) out)
+                      (incf i 2))
+                    (vector-push-extend ch out)))
+              (vector-push-extend ch out))))
+      (coerce out 'string))))
+
 (defun parse-query-string (query-string)
-  "Parse a URL query string into an alist."
+  "Parse a URL query string into an alist of percent-decoded pairs."
   (when (and query-string (plusp (length query-string)))
     (iter (for pair in (split-sequence:split-sequence #\& query-string))
       (collecting (let ((kv (split-sequence:split-sequence #\= pair)))
-                    (cons (car kv) (cadr kv)))))))
+                    (let ((key (percent-decode (car kv)))
+                          (value (percent-decode (cadr kv))))
+                      (cons key value)))))))
 
 (defun get-query-param (query-params name)
   "Get a query parameter by name from parsed query params."
@@ -439,6 +459,83 @@
                           :agent-id agent-id
                           :details `((:user_id . ,user-id) (:body . ,comment-body)))
             (json-response `(:id ,id) 201)))
+        (error-response "Invalid ticket ID"))))
+
+(defun handle-delete-comment (env)
+  "DELETE /api/tickets/:ticket-id/comments/:comment-id"
+  (let ((ticket-id nil) (comment-id nil))
+    (ppcre:register-groups-bind (tid cid)
+        ("^/api/tickets/(\\d+)/comments/(\\d+)$" (getf env :path-info))
+      (setf ticket-id (parse-integer tid) comment-id (parse-integer cid)))
+    (if (and ticket-id comment-id)
+        (let ((comment (get-comment-by-id comment-id)))
+          (cond ((null comment)
+                 (error-response "Comment not found" 404))
+                ((not (eql (getf comment :ticket-id) ticket-id))
+                 (error-response "Comment not found" 404))
+                (t
+                 (let ((ticket (get-ticket-by-id ticket-id)))
+                   (if ticket
+                       (let ((forbidden (actor-board-access-error env (getf ticket :board-id))))
+                         (if forbidden
+                             forbidden
+                             (progn
+                               (delete-comment comment-id)
+                               (json-response `(:message "Comment deleted")))))
+                       (error-response "Ticket not found" 404))))))
+        (error-response "Invalid comment ID"))))
+
+(defun handle-add-ticket-label (env)
+  "POST /api/tickets/:id/labels/:ref — add a label (by ID) to a ticket."
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/labels/\\w+$")))
+    (if id
+        (let ((label (extract-id-from-path (getf env :path-info)
+                                           "^/api/tickets/\\d+/labels/(\\d+)$")))
+          (if label
+              (let ((ticket (get-ticket-by-id id)))
+                (if ticket
+                    (let ((forbidden (actor-board-access-error env (getf ticket :board-id))))
+                      (if forbidden
+                          forbidden
+                          (progn
+                            (add-label-to-ticket id label)
+                            (json-response `(:labels ,(get-ticket-labels id)))))
+                      )
+                    (error-response "Ticket not found" 404)))
+              (error-response "Invalid label ID")))
+        (error-response "Invalid ticket ID"))))
+
+(defun handle-remove-ticket-label (env)
+  "DELETE /api/tickets/:id/labels/:ref — remove a label (by ID) from a ticket."
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/labels/\\w+$")))
+    (if id
+        (let ((label (extract-id-from-path (getf env :path-info)
+                                           "^/api/tickets/\\d+/labels/(\\d+)$")))
+          (if label
+              (let ((ticket (get-ticket-by-id id)))
+                (if ticket
+                    (let ((forbidden (actor-board-access-error env (getf ticket :board-id))))
+                      (if forbidden
+                          forbidden
+                          (progn
+                            (remove-label-from-ticket id label)
+                            (json-response `(:labels ,(get-ticket-labels id)))))
+                      )
+                    (error-response "Ticket not found" 404)))
+              (error-response "Invalid label ID")))
+        (error-response "Invalid ticket ID"))))
+
+(defun handle-list-ticket-labels (env)
+  "GET /api/tickets/:id/labels — list labels on a ticket."
+  (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/labels$")))
+    (if id
+        (let ((ticket (get-ticket-by-id id)))
+          (if ticket
+              (let ((forbidden (actor-board-access-error env (getf ticket :board-id))))
+                (if forbidden
+                    forbidden
+                    (json-response `(:labels ,(get-ticket-labels id)))))
+              (error-response "Ticket not found" 404)))
         (error-response "Invalid ticket ID"))))
 
 ;;; Activity handlers
@@ -790,8 +887,13 @@
                         ((getf actor :user-id) (list-visible-boards (getf actor :user-id)))
                         (t (list-visible-boards nil))))
              (found (find board-id visible :key (lambda (b) (getf b :id)))))
-        (unless (or found (and (not agent) (manager-p (getf actor :user-id))))
-          (error-response "Board not found or not accessible" 403))))))
+        (unless (or found
+                    (and (not agent)
+                         (getf actor :user-id)
+                         (manager-p (getf actor :user-id))))
+          (if (null actor)
+              (error-response "Not authenticated" 401)
+              (error-response "Board not found or not accessible" 403)))))))
 
 (defun board-manage-error (board-id user-id)
   "Return 403 response unless USER-ID may manage the board. Agent calls pass

@@ -113,8 +113,9 @@
          (boards (remove local current :key #'car :test #'string-equal)))
     (store-site-config (list :boards (cons (cons local remote) boards)) site)))
 
-(defun cli-add-site (name url key &optional agent)
-  "Add or update SITE with its server URL and API KEY, keeping existing boards."
+(defun cli-add-site (name url bearer server-public agent-private)
+  "Add or update SITE with its server URL and agent shape credentials,
+   keeping existing boards."
   (let* ((old (cli-site-config name))
          (sites (remove name (getf (read-cli-config) :sites)
                         :key #'car :test #'string=)))
@@ -122,8 +123,9 @@
      (list :sites
            (cons (cons name
                        (list :server-url url
-                             :key key
-                             :agent-id agent
+                             :bearer bearer
+                             :server-public server-public
+                             :agent-private agent-private
                              :boards (getf old :boards)))
                  sites)))
     (format t "Added site ~a. Add boards: focus-cli add-board --site ~a~%"
@@ -547,6 +549,14 @@
    :description "Manage users"
    :sub-commands (list (make-user-list-command))))
 
+(defun print-agent-shape-secrets (agent-id bearer server-public agent-private)
+  "Print shape credentials once — they cannot be recovered later."
+  (format t "Shape credentials for agent ~a (store them now, shown once):~%"
+          agent-id)
+  (format t "  bearer:        ~a~%" bearer)
+  (format t "  server-public: ~a~%" server-public)
+  (format t "  agent-private: ~a~%" agent-private))
+
 (defun make-agent-create-command ()
   "Create the agent create command."
   (clingon:make-command
@@ -557,33 +567,34 @@
                 (bind ((name (clingon:getopt cmd :name))
                        (owner (clingon:getopt cmd :owner))
                        (description (clingon:getopt cmd :description))
-                       (with-key? (clingon:getopt cmd :key)))
+                       (with-shape? (clingon:getopt cmd :shape)))
                   (if (and name owner)
                       (let ((id (create-agent owner name :description description)))
                         (format t "Created agent ~a~%" id)
-                        (when with-key?
-                          (let ((token (format nil "focus~d-~a" id (random-token-hex))))
-                            (create-agent-key id token)
-                            (format t "API key (store it now): ~a~%" token))))
+                        (when with-shape?
+                          (multiple-value-bind (shape-id bearer server-public agent-private)
+                              (create-agent-shape id (or name "cli"))
+                            (declare (ignore shape-id))
+                            (print-agent-shape-secrets id bearer server-public agent-private))))
                       (format t "Specify --name and --owner~%")))))
    :options (list (clingon:make-option :string
-                                       :long-name "name"
-                                       :description "Agent name"
-                                       :key :name
-                                       :required t)
+                                        :long-name "name"
+                                        :description "Agent name"
+                                        :key :name
+                                        :required t)
                   (clingon:make-option :integer
-                                       :long-name "owner"
-                                       :description "Owning user ID"
-                                       :key :owner
-                                       :required t)
+                                        :long-name "owner"
+                                        :description "Owning user ID"
+                                        :key :owner
+                                        :required t)
                   (clingon:make-option :string
-                                       :long-name "description"
-                                       :description "Agent description"
-                                       :key :description)
+                                        :long-name "description"
+                                        :description "Agent description"
+                                        :key :description)
                   (clingon:make-option :flag
-                                       :long-name "key"
-                                       :description "Also generate an API key"
-                                       :key :key))))
+                                        :long-name "shape"
+                                        :description "Also generate a credential shape"
+                                        :key :shape))))
 
 (defun make-agent-list-command ()
   "Create the agent list command."
@@ -617,62 +628,67 @@
                       (format t "Missing agent ID~%")))))
    :options nil))
 
-(defun make-agent-key-add-command ()
-  "Create the agent key add command."
+(defun make-agent-shape-add-command ()
+  "Create the agent shape add command."
   (clingon:make-command
    :name "add"
-   :description "Generate a new API key for an agent (shown once)"
+   :description "Generate a new credential shape for an agent (shown once)"
    :handler (lambda (cmd)
               (with-cli-db
                 (let ((id (cli-int-arg cmd 0)))
                   (if id
-                      (let ((token (format nil "focus~d-~a" id (random-token-hex))))
-                        (create-agent-key id token)
-                        (format t "API key for agent ~a (store it now): ~a~%" id token))
+                      (multiple-value-bind (shape-id bearer server-public agent-private)
+                          (create-agent-shape id (or (clingon:getopt cmd :name) "cli"))
+                        (declare (ignore shape-id))
+                        (print-agent-shape-secrets id bearer server-public agent-private))
                       (format t "Missing agent ID~%")))))
-   :options nil))
+   :options (list (clingon:make-option :string
+                                        :long-name "name"
+                                        :description "Shape name"
+                                        :key :name))))
 
-(defun make-agent-key-list-command ()
-  "Create the agent key list command."
+(defun make-agent-shape-list-command ()
+  "Create the agent shape list command."
   (clingon:make-command
    :name "list"
-   :description "List API keys for an agent"
+   :description "List credential shapes for an agent"
    :handler (lambda (cmd)
               (with-cli-db
                 (let ((id (cli-int-arg cmd 0)))
                   (if id
-                      (iter (for key in (list-agent-keys id))
-                        (format t "~a | ~a | ~a~%"
-                                (getf key :id)
-                                (getf key :token_prefix)
-                                (if (getf key :revoked) "revoked" "active")))
+                      (iter (for shape in (list-agent-shapes id))
+                        (format t "~a | ~a | ~a | ~a~%"
+                                (getf shape :id)
+                                (getf shape :name)
+                                (getf shape :token_prefix)
+                                (if (getf shape :revoked) "revoked" "active")))
                       (format t "Missing agent ID~%")))))
    :options nil))
 
-(defun make-agent-key-revoke-command ()
-  "Create the agent key revoke command."
+(defun make-agent-shape-revoke-command ()
+  "Create the agent shape revoke command."
   (clingon:make-command
    :name "revoke"
-   :description "Revoke an agent API key"
+   :description "Revoke an agent credential shape"
    :handler (lambda (cmd)
               (with-cli-db
                 (let ((agent (cli-int-arg cmd 0))
-                      (key-id (cli-int-arg cmd 1)))
-                  (if (and agent key-id)
+                      (shape-id (cli-int-arg cmd 1)))
+                  (if (and agent shape-id)
                       (progn
-                        (revoke-agent-key agent key-id)
-                        (format t "Revoked key ~a for agent ~a~%" key-id agent))
-                      (format t "Usage: focus agent key revoke AGENT KEY-ID~%")))))
+                        (revoke-agent-shape agent shape-id)
+                        (format t "Revoked shape ~a for agent ~a~%" shape-id agent))
+                      (format t "Usage: focus agent shape revoke AGENT SHAPE-ID~%")))))
    :options nil))
 
-(defun make-agent-key-command ()
-  "Create the agent key command group."
+(defun make-agent-shape-command ()
+  "Create the agent shape command group."
   (clingon:make-command
-   :name "key"
-   :description "Manage agent API keys"
-   :sub-commands (list (make-agent-key-add-command)
-                       (make-agent-key-list-command)
-                       (make-agent-key-revoke-command))))
+   :name "shape"
+   :description "Manage agent credential shapes"
+   :sub-commands (list (make-agent-shape-add-command)
+                       (make-agent-shape-list-command)
+                       (make-agent-shape-revoke-command))))
 
 (defun make-agent-use-command ()
   "Create the agent use command."
@@ -682,39 +698,33 @@
    :handler (lambda (cmd)
               (with-cli-db
                 (let ((agent (clingon:getopt cmd :agent))
-                      (board (clingon:getopt cmd :board))
-                      (key (clingon:getopt cmd :key)))
+                      (board (clingon:getopt cmd :board)))
                   (cond ((null agent)
                          (format t "Specify --agent~%"))
                         ((null (get-agent-by-id agent))
                          (format t "Agent ~a not found~%" agent))
                         ((and board (null (get-board-by-id board)))
                          (format t "Board ~a not found~%" board))
-                         (t
-(let ((config (cli-site-config "default")))
-                             (write-cli-config (list :agent-id agent
-                                                     :key (or key (getf config :key))
-                                                     :board-id (or board (getf config :board-id))))
-                            (format t "Agent identity updated. Run 'focus status' to review.~%")))))))
+                        (t
+                         (let ((config (cli-site-config "default")))
+                           (write-cli-config (list :agent-id agent
+                                                   :board-id (or board (getf config :board-id))))
+                           (format t "Agent identity updated. Run 'focus status' to review.~%")))))))
    :options (list (clingon:make-option :integer
-                                       :long-name "agent"
-                                       :description "Agent ID to use"
-                                       :key :agent
-                                       :required t)
+                                        :long-name "agent"
+                                        :description "Agent ID to use"
+                                        :key :agent
+                                        :required t)
                   (clingon:make-option :integer
-                                       :long-name "board"
-                                       :description "Board ID to work in"
-                                       :key :board)
-                  (clingon:make-option :string
-                                       :long-name "key"
-                                       :description "API key to store"
-                                       :key :key))))
+                                        :long-name "board"
+                                        :description "Board ID to work in"
+                                        :key :board))))
 
 (defun make-agent-init-command ()
   "Create the agent init command."
   (clingon:make-command
    :name "init"
-   :description "Create an agent with a board for work and an API key, store the identity"
+   :description "Create an agent with a board for work and a credential shape, store the identity"
    :handler (lambda (cmd)
               (with-cli-db
                 (let* ((name (clingon:getopt cmd :name))
@@ -726,47 +736,55 @@
                       (format t "Specify --owner~%")
                       (let* ((config (cli-site-config "default"))
                              (agent-id (getf config :agent-id))
-                             (key (getf config :key))
+                             (bearer (getf config :bearer))
+                             (server-public (getf config :server-public))
+                             (agent-private (getf config :agent-private))
                              (board-id (getf config :board-id)))
                         (unless (and agent-id (get-agent-by-id agent-id))
                           (setf agent-id
                                 (create-agent owner (or name "CLI Agent") :description description))
                           (format t "Created agent ~a~%" agent-id))
-                        (unless key
-                          (setf key (format nil "focus~d-~a" agent-id (random-token-hex)))
-                          (create-agent-key agent-id key)
-                          (format t "API key (store this now): ~a~%" key))
+                        (unless bearer
+                          (multiple-value-bind (shape-id new-bearer new-server-public new-agent-private)
+                              (create-agent-shape agent-id (or name "cli"))
+                            (declare (ignore shape-id))
+                            (setf bearer new-bearer
+                                  server-public new-server-public
+                                  agent-private new-agent-private)
+                            (print-agent-shape-secrets agent-id bearer server-public agent-private)))
                         (unless (and board-id (get-board-by-id board-id))
                           (when board-name
                             (setf board-id (create-board board-name (or type "common") owner))
                             (ensure-board-member board-id "agent" agent-id)
                             (format t "Created board ~a: ~a~%" board-id board-name)))
                         (write-cli-config (list :agent-id agent-id
-                                                :key key
+                                                :bearer bearer
+                                                :server-public server-public
+                                                :agent-private agent-private
                                                 :board-id board-id))
                         (format t "Agent identity stored. Run 'focus status' to review.~%"))))))
    :options (list (clingon:make-option :integer
-                                       :long-name "owner"
-                                       :description "Owning user ID"
-                                       :key :owner
-                                       :required t)
+                                        :long-name "owner"
+                                        :description "Owning user ID"
+                                        :key :owner
+                                        :required t)
                   (clingon:make-option :string
-                                       :long-name "name"
-                                       :description "Agent name"
-                                       :key :name)
+                                        :long-name "name"
+                                        :description "Agent name"
+                                        :key :name)
                   (clingon:make-option :string
-                                       :long-name "description"
-                                       :description "Agent description"
-                                       :key :description)
+                                        :long-name "description"
+                                        :description "Agent description"
+                                        :key :description)
                   (clingon:make-option :string
-                                       :long-name "board"
-                                       :description "Name of a new board to create for work"
-                                       :key :board)
+                                        :long-name "board"
+                                        :description "Name of a new board to create for work"
+                                        :key :board)
                   (clingon:make-option :string
-                                       :long-name "type"
-                                       :description "Board type: common or personal"
-                                       :key :type
-                                       :initial-value "common"))))
+                                        :long-name "type"
+                                        :description "Board type: common or personal"
+                                        :key :type
+                                        :initial-value "common"))))
 
 (defun make-agent-command ()
   "Create the agent command group."
@@ -778,7 +796,7 @@
                        (make-agent-create-command)
                        (make-agent-list-command)
                        (make-agent-delete-command)
-                       (make-agent-key-command))))
+                       (make-agent-shape-command))))
 
 (defun make-board-create-command ()
   "Create the board create command."
@@ -966,10 +984,10 @@
                              (board (when (getf config :board-id)
                                       (get-board-by-id (getf config :board-id)))))
                          (format t "Agent: ~a~@[ (~a)~]~%"
-                                 (getf config :agent-id) (getf agent :name))
+                                  (getf config :agent-id) (getf agent :name))
                          (format t "Board: ~a~@[ (~a)~]~%"
-                                 (getf config :board-id) (getf board :name))
-                         (format t "Key:   ~a~%" (mask-key (getf config :key))))
+                                  (getf config :board-id) (getf board :name))
+                         (format t "Bearer: ~a~%" (mask-key (getf config :bearer))))
                        (format t "No agent identity configured. Run 'focus agent init' or 'focus agent use'.~%")))))
    :options nil))
 

@@ -36,6 +36,7 @@ Accessors live in `src/config.lisp`; discovery/validation in
 | `:bind-port` | (required) | HTTP port |
 | `:nrepl-port` | nil | nREPL port (off if nil) |
 | `:nrepl-address` | "127.0.0.1" | nREPL bind address |
+| `:envelope-window-seconds` | 15 | Agent envelope timestamp freshness window (replay protection) |
 
 ### OAuth2 / OpenID (Mattermost)
 

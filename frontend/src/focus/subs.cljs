@@ -59,9 +59,9 @@
    (into {} (map #(vector (:id %) %) (:agents db)))))
 
 (rf/reg-sub
- :agent-keys
+ :agent-shapes
  (fn [db [_ id]]
-   (get-in db [:agent-keys id] [])))
+   (get-in db [:agent-shapes id] [])))
 
 (rf/reg-sub
  :board-members

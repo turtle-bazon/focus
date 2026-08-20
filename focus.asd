@@ -30,6 +30,7 @@
                   (:file "static-assets")
                   (:file "static")
                   (:file "db")
+                  (:file "crypto")
                    (:file "nrepl")
                    (:file "ws")
                    (:module "models"

@@ -10,7 +10,7 @@
 
 ## Migrations
 
-SQL migration files live in `migrations/` (`0001` .. `0021`). Run
+SQL migration files live in `migrations/` (`0001` .. `0025`). Run
 `make generate-migrations` to regenerate `src/migrations.lisp`, which embeds
 all SQL into the binary. The embedded migrations run automatically on server
 startup via `migrate-up`. `migrate-down` exists; `main` supports
@@ -20,7 +20,8 @@ Migration subjects: schema_version, users, issues→tickets rename, labels,
 issue_labels→ticket_labels, comments, activity, attachments, webhooks,
 sessions, position (→ position_num/position_den), ticket color, user picture,
 groups + observers, user role, polymorphic assignee (assignee_type), boards
-lifecycle, boards default lifecycle, users soft-delete.
+lifecycle, boards default lifecycle, users soft-delete, agents + key shapes,
+agent bearer prefix.
 
 ## Schema
 
@@ -161,5 +162,29 @@ CREATE TABLE board_transitions (
     from_code VARCHAR(50) NOT NULL,
     to_code VARCHAR(50) NOT NULL,
     UNIQUE (board_id, from_code, to_code)
+);
+
+CREATE TABLE agents (
+    id SERIAL PRIMARY KEY,
+    owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT now()
+);
+
+-- X25519 credential shapes (see src/crypto.lisp). The bearer is stored
+-- hashed; the server private half and the agent public half enable the
+-- static ECDH shared secret for the POST /api/agent envelope.
+CREATE TABLE agent_key_shapes (
+    id SERIAL PRIMARY KEY,
+    agent_id INTEGER REFERENCES agents(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    bearer_hash VARCHAR(64) NOT NULL,
+    token_prefix VARCHAR(32),
+    server_private VARCHAR(128) NOT NULL,
+    agent_public VARCHAR(128) NOT NULL,
+    created_at TIMESTAMP DEFAULT now(),
+    last_used_at TIMESTAMP,
+    revoked BOOLEAN NOT NULL DEFAULT false
 );
 ```

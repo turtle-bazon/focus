@@ -19,6 +19,51 @@
 
 (in-suite focus-tests)
 
+(test envelope-roundtrip-and-tamper
+  "X25519 ECDH + AES-GCM envelope: both sides derive the same master key,
+   plaintext survives a round trip, and tampering is detected."
+  (multiple-value-bind (server-private server-public)
+      (focus::x25519-generate-keypair)
+    (multiple-value-bind (agent-private agent-public)
+        (focus::x25519-generate-keypair)
+      ;; Simulate persisted base64 halves, as stored in the DB and ~/.focus-cli.
+      (let* ((master-server
+              (focus::envelope-master-key
+               (focus::x25519-shared-secret
+                (focus::x25519-import-private
+                 (focus::x25519-export-private server-private))
+                (focus::x25519-import-public
+                 (focus::x25519-export-public agent-public)))))
+             (master-agent
+              (focus::cli-master-key
+               :server-public (focus::x25519-export-public server-public)
+               :agent-private (focus::x25519-export-private agent-private)))
+             (ts (get-universal-time))
+             (plaintext (flexi-streams:string-to-octets
+                         "{\"method\":\"get\",\"path\":\"/api/boards\"}")))
+        (is (equalp master-server master-agent))
+        (multiple-value-bind (nonce ciphertext tag)
+            (focus::envelope-encrypt master-agent
+                                     focus::+envelope-direction-request+
+                                     ts plaintext)
+          (let ((json (focus::envelope-encode-json ts nonce ciphertext tag)))
+            (multiple-value-bind (ts2 nonce2 ciphertext2 tag2)
+                (focus::envelope-parse-json json)
+              (is (= ts ts2))
+              (is (equalp nonce nonce2))
+              (is (string=
+                   "{\"method\":\"get\",\"path\":\"/api/boards\"}"
+                   (flexi-streams:octets-to-string
+                    (focus::envelope-decrypt
+                     master-server focus::+envelope-direction-request+
+                     ts2 nonce2 ciphertext2 tag2))))
+              ;; A flipped ciphertext bit must fail tag verification.
+              (setf (aref ciphertext2 0) (logxor (aref ciphertext2 0) 1))
+              (signals ironclad:bad-authentication-tag
+                (focus::envelope-decrypt
+                 master-server focus::+envelope-direction-request+
+                 ts2 nonce2 ciphertext2 tag2)))))))))
+
 (test create-and-get-user
   (let ((id (focus::create-user "testuser" "test@example.com")))
     (is (numberp id))

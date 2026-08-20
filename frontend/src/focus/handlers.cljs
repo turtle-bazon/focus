@@ -65,7 +65,7 @@
     :tickets []
     :users []
     :agents []
-    :agent-keys {}
+    :agent-shapes {}
     :labels []
     :groups []
     :group-members {}
@@ -469,11 +469,11 @@
 (rf/reg-event-fx
  :fetch-agents
  (fn [{:keys [db]} _]
-   (api/fetch-agents
-    (fn [response]
-      (rf/dispatch [:set-agents (:agents response)])
-      (doseq [agent (:agents response)]
-        (rf/dispatch [:fetch-agent-keys (:id agent)])))
+    (api/fetch-agents
+     (fn [response]
+       (rf/dispatch [:set-agents (:agents response)])
+       (doseq [agent (:agents response)]
+         (rf/dispatch [:fetch-agent-shapes (:id agent)])))
     (fn [error]
       (rf/dispatch [:set-error (str "Failed to fetch agents: " error)])))
    {:db db}))
@@ -508,43 +508,43 @@
    {:db db}))
 
 (rf/reg-event-fx
- :create-agent-key
+ :create-agent-shape
  (fn [{:keys [db]} [_ id on-success]]
-   (api/create-agent-key
+   (api/create-agent-shape
     id
     (fn [response]
       (when on-success (on-success response))
-      (rf/dispatch [:fetch-agent-keys id]))
+      (rf/dispatch [:fetch-agent-shapes id]))
     (fn [error]
-      (rf/dispatch [:set-error (str "Failed to create agent key: " error)])))
+      (rf/dispatch [:set-error (str "Failed to create agent shape: " error)])))
    {:db db}))
 
 (rf/reg-event-fx
- :fetch-agent-keys
+ :fetch-agent-shapes
  (fn [{:keys [db]} [_ id]]
-   (api/fetch-agent-keys
+   (api/fetch-agent-shapes
     id
     (fn [response]
-      (rf/dispatch [:set-agent-keys id (:keys response)]))
+      (rf/dispatch [:set-agent-shapes id (:shapes response)]))
     (fn [error]
-      (rf/dispatch [:set-error (str "Failed to fetch agent keys: " error)])))
+      (rf/dispatch [:set-error (str "Failed to fetch agent shapes: " error)])))
    {:db db}))
 
 (rf/reg-event-db
- :set-agent-keys
- (fn [db [_ id keys]]
-   (assoc-in db [:agent-keys id] keys)))
+ :set-agent-shapes
+ (fn [db [_ id shapes]]
+   (assoc-in db [:agent-shapes id] shapes)))
 
 (rf/reg-event-fx
- :revoke-agent-key
- (fn [{:keys [db]} [_ id key-id on-success]]
-   (api/revoke-agent-key
-    id key-id
+ :revoke-agent-shape
+ (fn [{:keys [db]} [_ id shape-id on-success]]
+   (api/revoke-agent-shape
+    id shape-id
     (fn [_]
       (when on-success (on-success))
-      (rf/dispatch [:fetch-agent-keys id]))
+      (rf/dispatch [:fetch-agent-shapes id]))
     (fn [error]
-      (rf/dispatch [:set-error (str "Failed to revoke agent key: " error)])))
+      (rf/dispatch [:set-error (str "Failed to revoke agent shape: " error)])))
    {:db db}))
 
 (rf/reg-event-fx
@@ -1048,11 +1048,11 @@
 
 (rf/reg-event-db
  :show-key-modal
- (fn [db [_ agent-id token]]
-   (let [keys (get-in db [:agent-keys agent-id])]
-     (assoc db :key-modal {:agent-id agent-id
-                           :token token
-                           :revoked? (boolean (seq keys))}))))
+ (fn [db [_ agent-id secrets]]
+   (assoc db :key-modal {:agent-id agent-id
+                         :bearer (:bearer secrets)
+                         :server-public (:server_public secrets)
+                         :agent-private (:agent_private secrets)})))
 
 (rf/reg-event-db
  :close-key-modal

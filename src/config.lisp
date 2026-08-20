@@ -28,6 +28,8 @@
 (defun config->bind-port (config) (getf config :bind-port))
 (defun config->nrepl-port (config) (getf config :nrepl-port))
 (defun config->nrepl-address (config) (getf config :nrepl-address))
+(defun config->envelope-window-seconds (config)
+  (or (getf config :envelope-window-seconds) 15))
 
 ;;; OAuth2 config
 

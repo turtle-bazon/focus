@@ -93,18 +93,22 @@
                        (parse-integer item))))
       (when id (collecting id)))))
 
-(defun parse-json-body (env)
-  "Parse JSON request body from Clack env."
+(defun raw-body-string (env)
+  "Read the raw request body from ENV as a UTF-8 string."
   (let ((body (getf env :raw-body)))
     (when body
-      (let ((content (if (typep body 'stream)
-                         (let* ((buf (make-array 4096 :element-type '(unsigned-byte 8) :fill-pointer t))
-                                (pos (read-sequence buf body)))
-                           (setf (fill-pointer buf) pos)
-                           (flexi-streams:octets-to-string buf :external-format :utf-8))
-                         (flexi-streams:octets-to-string body :external-format :utf-8))))
-        (when (> (length content) 0)
-          (normalize-json-body (cl-json:decode-json-from-string content)))))))
+      (if (typep body 'stream)
+          (let* ((buf (make-array 4096 :element-type '(unsigned-byte 8) :fill-pointer t))
+                 (pos (read-sequence buf body)))
+            (setf (fill-pointer buf) pos)
+            (flexi-streams:octets-to-string buf :external-format :utf-8))
+          (flexi-streams:octets-to-string body :external-format :utf-8)))))
+
+(defun parse-json-body (env)
+  "Parse JSON request body from Clack env."
+  (let ((content (raw-body-string env)))
+    (when (and content (> (length content) 0))
+      (normalize-json-body (cl-json:decode-json-from-string content)))))
 
 (defun percent-decode (str)
   "Decode percent-encoded octets in STR (e.g. '%20' -> space)."
@@ -154,12 +158,11 @@
 
 (defun get-actor (env)
   "Return the acting identity as a plist, or nil. For a session cookie user:
-   (:user-id N). For a bearer token agent: (:agent-id N :user-id <owner> :agent <plist>)."
+   (:user-id N). For an agent envelope request: (:agent-id N :user-id <owner>
+   :agent <plist>) from the :focus-agent injected by handle-agent-envelope."
   (or (let ((uid (get-user-id-from-env env)))
         (when uid (list :user-id uid)))
-      (multiple-value-bind (agent token)
-          (get-agent-and-key-from-env env)
-        (declare (ignore token))
+      (let ((agent (getf env :focus-agent)))
         (when agent
           (list :agent-id (getf agent :id)
                 :user-id (getf agent :owner-id)
@@ -1144,6 +1147,97 @@
           (json-response `(:message "Transition removed")))
         (error-response "Invalid board, from_code, or to_code"))))
 
+;;; Agent envelope (POST /api/agent)
+
+(defun agent-shape-master-key (shape)
+  "Compute the envelope master key for SHAPE from the server's private half."
+  (envelope-master-key
+   (x25519-shared-secret
+    (x25519-import-private (getf shape :server-private))
+    (x25519-import-public (getf shape :agent-public)))))
+
+(defun make-agent-env (method path query body-string agent)
+  "Build a synthetic Clack env carrying AGENT's identity and the decrypted
+   inner request, ready for the router."
+  (list :request-method (when method (intern (string-upcase method) :keyword))
+        :path-info path
+        :query-string query
+        :raw-body (when body-string
+                    (flexi-streams:string-to-octets body-string
+                                                    :external-format :utf-8))
+        :focus-agent agent))
+
+(defun valid-agent-request-p (method path)
+  "Only plain API methods and paths other than /api/agent may be tunneled."
+  (and method path
+       (member (intern (string-upcase method) :keyword)
+               '(:get :post :put :delete))
+       (ppcre:scan "^/api/" path)
+       (not (ppcre:scan "^/api/agent" path))))
+
+(defun response-body-text (body)
+  "Flatten a Clack response BODY into text for the agent envelope."
+  (cond
+    ((null body) "")
+    ((stringp body) body)
+    ((and (consp body) (stringp (first body))) (first body))
+    (t "")))
+
+(defun make-agent-envelope-response (master response)
+  "Encrypt an inner HTTP RESPONSE (a Clack list) into the envelope returned
+   by POST /api/agent. The outer status mirrors the inner one."
+  (let* ((status (first response))
+         (inner (with-output-to-string (stream)
+                  (cl-json:encode-json-alist
+                   `((:status . ,status)
+                     (:body . ,(response-body-text (third response))))
+                   stream)))
+         (ts (get-universal-time)))
+    (multiple-value-bind (nonce ciphertext tag)
+        (envelope-encrypt master +envelope-direction-response+ ts
+                          (flexi-streams:string-to-octets inner
+                                                          :external-format :utf-8))
+      (list status
+            '(:content-type "application/json")
+            (list (envelope-encode-json ts nonce ciphertext tag))))))
+
+(defun handle-agent-envelope (env)
+  "POST /api/agent — decrypt an agent envelope, run the inner request through
+   the router as the shape's agent, and return an encrypted envelope."
+  (let* ((token (bearer-token-from-env env))
+         (shape (when token (get-agent-shape-by-bearer token))))
+    (unless (and token shape)
+      (return-from handle-agent-envelope (error-response "Unauthorized" 401)))
+    (multiple-value-bind (ts nonce ciphertext tag)
+        (ignore-errors (envelope-parse-json (raw-body-string env)))
+      (unless ts
+        (return-from handle-agent-envelope (error-response "Invalid envelope" 400)))
+      (unless (envelope-time-fresh-p ts (config->envelope-window-seconds *config*))
+        (return-from handle-agent-envelope
+          (error-response "Envelope timestamp outside the freshness window" 400)))
+      (handler-case
+          (let* ((master (agent-shape-master-key shape))
+                 (plaintext (envelope-decrypt master +envelope-direction-request+
+                                              ts nonce ciphertext tag))
+                 (request (normalize-json-body
+                           (cl-json:decode-json-from-string
+                            (flexi-streams:octets-to-string plaintext
+                                                            :external-format :utf-8))))
+                 (method (json-assoc :method request))
+                 (path (json-assoc :path request)))
+            (unless (valid-agent-request-p method path)
+              (return-from handle-agent-envelope
+                (error-response "Invalid inner request" 400)))
+            (make-agent-envelope-response
+             master
+             (funcall *router*
+                      (make-agent-env method path
+                                      (or (json-assoc :query request) "")
+                                      (json-assoc :body request)
+                                      (get-agent-by-id (getf shape :agent-id))))))
+        (ironclad:bad-authentication-tag ()
+          (error-response "Envelope authentication failed" 401))))))
+
 ;;; Agent handlers
 
 (defun require-session-user (env)
@@ -1227,41 +1321,48 @@
           (delete-agent id)
           (json-response `(:message "Agent deleted")))))))
 
-(defun handle-list-agent-keys (env)
-  "GET /api/agents/:id/keys"
+(defun handle-list-agent-shapes (env)
+  "GET /api/agents/:id/shapes"
   (multiple-value-bind (user-id forbidden) (require-session-user env)
     (if forbidden
         forbidden
-        (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)/keys$")))
+        (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)/shapes$")))
           (let ((agent (get-agent-by-id id)))
             (unless (and agent (= (getf agent :owner-id) user-id))
-              (return-from handle-list-agent-keys (error-response "Agent not found" 404)))
-          (json-response `(:keys ,(list-agent-keys id))))))))
+              (return-from handle-list-agent-shapes (error-response "Agent not found" 404)))
+          (json-response `(:shapes ,(list-agent-shapes id))))))))
 
-(defun handle-create-agent-key (env)
-  "POST /api/agents/:id/keys — create a new API key. Returns the raw token
-   once (it is only stored hashed)."
+(defun handle-create-agent-shape (env)
+  "POST /api/agents/:id/shapes — create a new credential shape. Returns the
+   bearer token, server public key, and agent private key once (the server
+   keeps only hashes and its own key halves)."
   (multiple-value-bind (user-id forbidden) (require-session-user env)
     (if forbidden
         forbidden
-        (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)/keys$")))
+        (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)/shapes$")))
           (let ((agent (get-agent-by-id id)))
             (unless (and agent (= (getf agent :owner-id) user-id))
-              (return-from handle-create-agent-key (error-response "Agent not found" 404)))
-          (let ((token (format nil "focus~d-~a" id (random-token-hex))))
-            (create-agent-key id token)
-            (json-response `(:token ,token :agent_id ,id) 201)))))))
+              (return-from handle-create-agent-shape (error-response "Agent not found" 404)))
+          (bind ((name (json-assoc :name (parse-json-body env)))
+                 ((:values shape-id bearer server-public agent-private)
+                  (create-agent-shape id (or name "web"))))
+            (json-response `(:id ,shape-id
+                             :bearer ,bearer
+                             :server_public ,server-public
+                             :agent_private ,agent-private
+                             :agent_id ,id)
+                           201)))))))
 
-(defun handle-revoke-agent-key (env)
-  "DELETE /api/agents/:id/keys/:key_id"
+(defun handle-revoke-agent-shape (env)
+  "DELETE /api/agents/:id/shapes/:shape_id"
   (multiple-value-bind (user-id forbidden) (require-session-user env)
     (if forbidden
         forbidden
         (let* ((path (getf env :path-info))
-               (id (extract-id-from-path path "^/api/agents/(\\d+)/keys/\\d+$"))
-               (key-id (extract-id-from-path path "^/api/agents/\\d+/keys/(\\d+)$")))
+               (id (extract-id-from-path path "^/api/agents/(\\d+)/shapes/\\d+$"))
+               (shape-id (extract-id-from-path path "^/api/agents/\\d+/shapes/(\\d+)$")))
           (let ((agent (get-agent-by-id id)))
             (unless (and agent (= (getf agent :owner-id) user-id))
-              (return-from handle-revoke-agent-key (error-response "Agent not found" 404)))
-          (revoke-agent-key id key-id)
-          (json-response `(:message "Key revoked")))))))
+              (return-from handle-revoke-agent-shape (error-response "Agent not found" 404)))
+          (revoke-agent-shape id shape-id)
+          (json-response `(:message "Shape revoked")))))))

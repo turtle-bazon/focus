@@ -110,13 +110,15 @@
       (is (= 2 (getf (focus::cli-site-config "work") :board-id))))))
 
 (test add-site-stores-server-key-and-preserves-boards
-  (with-test-config '(:sites (("work" :server-url "http://w:8080" :key "focus2-b"
-                                        :boards (("hd" . "Helpdesk")))))
+  (with-test-config '(:sites (("work" :server-url "http://w:8080" :bearer "focus2-b"
+                                         :boards (("hd" . "Helpdesk")))))
     (lambda ()
-      (focus::cli-add-site "work" "http://new:8080" "focus3-c")
-      (is (string= "http://new:8080"
-                   (getf (focus::cli-site-config "work") :server-url)))
-      (is (string= "focus3-c" (getf (focus::cli-site-config "work") :key)))
+      (focus::cli-add-site "work" "http://new:8080" "focus3-c" "srv-pub" "agt-priv")
+      (let ((config (focus::cli-site-config "work")))
+        (is (string= "http://new:8080" (getf config :server-url)))
+        (is (string= "focus3-c" (getf config :bearer)))
+        (is (string= "srv-pub" (getf config :server-public)))
+        (is (string= "agt-priv" (getf config :agent-private))))
       (is (string= "Helpdesk" (focus::cli-local-board-remote "work" "hd"))))))
 
 (test board-alias-maps-local-to-remote

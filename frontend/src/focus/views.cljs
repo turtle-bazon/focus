@@ -2106,12 +2106,12 @@
       [language-switcher]
       [user-menu]]]))
 
-(defn agent-key-view [agent]
-  (let [keys @(rf/subscribe [:agent-keys (:id agent)])]
-    (if (empty? keys)
+(defn agent-shape-view [agent]
+  (let [shapes @(rf/subscribe [:agent-shapes (:id agent)])]
+    (if (empty? shapes)
       [:span.settings-muted (t :settings/no-keys)]
       [:div.settings-agent-keys-body
-       (for [k keys]
+       (for [k shapes]
          ^{:key (:id k)}
          [:div.settings-agent-key
           [:div.settings-agent-key-info
@@ -2127,7 +2127,7 @@
                                       :message (t :confirm/revoke-key-message)
                                       :confirm-label (t :settings/revoke-key)
                                       :cancel-label (t :ticket/cancel)
-                                      :on-confirm (fn [] (rf/dispatch [:revoke-agent-key (:id agent) (:id k)]))}])}
+                                      :on-confirm (fn [] (rf/dispatch [:revoke-agent-shape (:id agent) (:id k)]))}])}
            (t :settings/revoke-key)]])])))
 (defn settings-tabs [tab]
   [:div.settings-tabs
@@ -2248,13 +2248,13 @@
   [:tr
    [:td (:name agent)]
    [:td (:description agent)]
-   [:td.settings-agent-keys [agent-key-view agent]]
+   [:td.settings-agent-keys [agent-shape-view agent]]
    [:td.settings-agent-actions
     [:button.btn-new-key
      {:title (t :settings/create-key)
-      :on-click #(rf/dispatch [:create-agent-key (:id agent)
+      :on-click #(rf/dispatch [:create-agent-shape (:id agent)
                                (fn [resp]
-                                 (rf/dispatch [:show-key-modal (:id agent) (:token resp)]))])}
+                                 (rf/dispatch [:show-key-modal (:id agent) resp]))])}
      (t :settings/create-key)]
     [:button.btn-delete
      {:title (t :settings/delete)
@@ -2367,7 +2367,7 @@
       (.catch (.writeText cb text) (fn [_])))))
 
 (defn key-modal []
-  (let [copied? (r/atom false)]
+  (let [copied? (r/atom #{})]
     (fn []
       (let [modal @(rf/subscribe [:key-modal])]
         (when modal
@@ -2377,22 +2377,30 @@
             {:on-click #(.stopPropagation %)}
             [:h3.confirm-modal-title (t :settings/new-key)]
             [:p.confirm-modal-message (t :settings/key-once-hint)]
-            [:div.settings-agent-key-token-row
-             [:input.settings-agent-key-token
-              {:type "text"
-               :readOnly true
-               :value (:token modal)
-               :on-focus (fn [e] (-> e .-target .select))}]
-             [:button.btn-copy-key
-              {:class (when @copied? "copied")
-              :on-click (fn []
-                           (copy-to-clipboard (:token modal))
-                           (reset! copied? true)
-                           (js/setTimeout #(reset! copied? false) 1500))
-               :title (if @copied? (t :settings/copied) (t :settings/copy))}
-              (if @copied?
-                [lucide-icon "Check" {:size 16}]
-                [lucide-icon "Copy" {:size 16}])]]
+            (for [[label value]
+                  [[(t :settings/bearer) (:bearer modal)]
+                   [(t :settings/server-public) (:server-public modal)]
+                   [(t :settings/agent-private) (:agent-private modal)]]]
+              ^{:key label}
+              [:div.settings-agent-key-token-row
+               [:span.settings-agent-key-prefix label]
+               [:input.settings-agent-key-token
+                {:type "text"
+                 :readOnly true
+                 :value (or value "")
+                 :on-focus (fn [e] (-> e .-target .select))}]
+               [:button.btn-copy-key
+                {:class (when (contains? @copied? label) "copied")
+                 :on-click (fn []
+                             (copy-to-clipboard value)
+                             (swap! copied? conj label)
+                             (js/setTimeout #(swap! copied? disj label) 1500))
+                 :title (if (contains? @copied? label)
+                          (t :settings/copied)
+                          (t :settings/copy))}
+                (if (contains? @copied? label)
+                  [lucide-icon "Check" {:size 16}]
+                  [lucide-icon "Copy" {:size 16}])]])
             [:div.confirm-modal-actions
              [:button.btn-cancel
               {:on-click #(rf/dispatch [:close-key-modal])}

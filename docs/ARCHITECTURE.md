@@ -10,7 +10,7 @@ focus/
 ├── focus.asd               # Main ASDF system
 ├── focus-cli.asd           # Remote CLI (focus-cli) ASDF system
 ├── focus-tests.asd         # Test ASDF system
-├── migrations/             # SQL migrations (0001..0021)
+├── migrations/             # SQL migrations (0001..0025)
 ├── src/
 │   ├── package.lisp        # Package definition + exports
 │   ├── config.lisp         # Config accessors, discovery, validation
@@ -18,6 +18,7 @@ focus/
 │   ├── static-assets.lisp  # Generated: embedded static (do not edit)
 │   ├── static.lisp         # Decodes embedded static; reload-static-assets
 │   ├── db.lisp             # PostgreSQL connection
+│   ├── crypto.lisp         # X25519 ECDH + AES-GCM agent envelope
 │   ├── nrepl.lisp          # Line-based nREPL server (port 5000)
 │   ├── ws.lisp             # WebSocket upgrade + broadcast
 │   ├── main.lisp           # Entry point (connect DB, migrate, start server)

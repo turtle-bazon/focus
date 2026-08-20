@@ -44,15 +44,6 @@
                        (> (length trimmed) 7))
               (string-trim " " (subseq trimmed 7)))))))))
 
-(defun get-agent-and-key-from-env (env)
-  "Resolve a bearer token in ENV to an agent. Returns two values: the agent
-   plist and the key, or NIL values if no token or unknown token."
-  (let ((token (bearer-token-from-env env)))
-    (when token
-      (let ((agent (find-agent-by-key token)))
-        (when agent
-          (values agent token))))))
-
 (defun make-oauth2-client-from-config (config)
   "Create an OAuth2 client from focus.conf settings."
   (setf *oauth2-client*

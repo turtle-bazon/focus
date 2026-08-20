@@ -77,11 +77,11 @@ focus label remove 123 2
 
 # Agents & boards (setup for a bot/agent)
 focus user list
-focus agent create --name "ci-bot" --owner 1 --description "CI" --key
+focus agent create --name "ci-bot" --owner 1 --description "CI" --shape
 focus agent list
-focus agent key add 3            # generate a new API key (shown once)
-focus agent key list 3
-focus agent key revoke 3 5
+focus agent shape add 3           # generate a new credential shape (shown once)
+focus agent shape list 3
+focus agent shape revoke 3 5
 focus agent delete 3
 
 focus board create --name "Project" --type common --owner 1
@@ -96,34 +96,36 @@ For a single scripted agent that owns its workflow, store its identity once and
 let every later command default to it:
 
 ```bash
-# Bootstrap: creates agent + board + API key, saves identity to ~/.focus-cli
+# Bootstrap: creates agent + board + credential shape, saves identity to ~/.focus-cli
 focus agent init --owner 1 --name "dev-agent" --board "Work"
 
 # Or adopt an agent/board created in the web UI:
-focus agent use --agent 3 --board 7 --key "focus3-..."
+focus agent use --agent 3 --board 7
 
-focus status              # review stored agent/board/key
+focus status              # review stored agent/board/bearer
 focus list                # defaults to the stored board
 focus create --title "Deploy"    # defaults to the stored board
 focus comment add 15 --body "checking"   # defaults to the stored agent
 ```
 
 Note: subcommands connect directly to the PostgreSQL database configured in
-`focus.conf` — run them on the same host as the server. API keys (`focusN-...`)
-are shown only once, so store them securely; agents authenticate against the
-REST API with `Authorization: Bearer <key>`.
+`focus.conf` — run them on the same host as the server. Shape credentials
+(bearer token, server public key, agent private key) are shown only once, so
+store them securely; agents authenticate against the REST API through the
+encrypted envelope endpoint `POST /api/agent` (X25519 ECDH + AES-GCM).
 
 ## Remote CLI (`focus-cli`)
 
 `focus-cli` is a second binary defined in `src/cli/remote.lisp`. It talks to
-the server's REST API using a stored agent API key (`Authorization: Bearer`),
-has **no database access**, and runs from any machine. Its config lives in
-`~/.focus-cli`; bootstrap it with `focus agent init`/`focus agent use` (above),
-or manually:
+the server's REST API through the encrypted agent envelope (`POST /api/agent`,
+bearer-authenticated; every request and response body is end-to-end encrypted
+with X25519 ECDH + AES-256-GCM), has **no database access**, and runs from any
+machine. Its config lives in `~/.focus-cli`; bootstrap it with `focus agent
+init`/`focus agent use` (above), or manually:
 
 ```bash
-focus-cli add-site --name work --url http://host:8080 --key "focusN-..." \
-                   [--agent ID]                       # server URL + key
+focus-cli add-site --name work --url http://host:8080 \
+                   --bearer "focusN-..." --server-public BASE64 --agent-private BASE64
 focus-cli add-board --site work --board Helpdesk      # one board by name
 focus-cli add-board --site work --name hd --board Helpdesk  # local alias
 focus-cli add-board --site work                       # interactive picker
@@ -149,11 +151,12 @@ focus-cli label add 1 2 --site work
 focus-cli label remove 1 2 --site work
 ```
 
-`~/.focus-cli` holds several named **sites** — each a server URL + agent API
-key (the key is per site) + any number of **board aliases** from that server.
-`add-site --name NAME --url URL --key KEY` adds or updates a site; there is
-no single "active site". The server URL is what separates sites — boards
-named the same on different servers don't collide.
+`~/.focus-cli` holds several named **sites** — each a server URL + agent shape
+credentials (bearer token, server public key, agent private key — per site) +
+any number of **board aliases** from that server. `add-site --name NAME --url
+URL --bearer BEARER --server-public KEY --agent-private KEY` adds or updates a
+site; there is no single "active site". The server URL is what separates
+sites — boards named the same on different servers don't collide.
 
 `add-board --site NAME` fetches the boards the agent can see and prompts you
 to pick several interactively (numbers/names, space or comma separated, empty

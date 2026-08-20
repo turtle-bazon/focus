@@ -17,7 +17,8 @@
 
 (in-package :focus)
 
-;;; Agent model — non-human identities owned by users, used via API keys.
+;;; Agent model — non-human identities owned by users, accessed remotely via
+;;; X25519 key shapes (see src/crypto.lisp).
 
 (defun create-agent (owner-id name &key description)
   "Create an agent owned by OWNER-ID. Returns the agent ID."
@@ -69,10 +70,10 @@
   (get-agent-by-id id))
 
 (defun delete-agent (id)
-  "Delete an agent. Cascades to keys."
+  "Delete an agent. Cascades to shapes."
   (db-execute "DELETE FROM agents WHERE id = $1" id))
 
-;;; Agent API keys
+;;; Agent API key helpers (still used for bearer hashing and display)
 
 (defun random-token-hex (&optional (bytes 24))
   "Return BYTES cryptographically-random bytes as a hex string."
@@ -89,49 +90,53 @@
   "Return the first 12 characters of TOKEN for display."
   (subseq token 0 (min 12 (length token))))
 
-(defun create-agent-key (agent-id token)
-  "Store a hashed agent key. Returns the key row ID."
-  (db-query
-   "INSERT INTO agent_keys (agent_id, token_hash, token_prefix)
-    VALUES ($1, $2, $3) RETURNING id"
-   agent-id (hash-agent-key token) (token-prefix token)
-   :single))
+;;; Agent key shapes — X25519 credential exchange (see src/crypto.lisp)
 
-(defun get-agent-key-token-hash (agent-id token)
-  "Check if TOKEN is a valid, non-revoked key for AGENT-ID.
-   Returns the key row plist or nil, and touches last_used_at."
-  (let* ((hash (hash-agent-key token))
-         (results (pg-query-params
-                   "SELECT id, agent_id, token_hash, created_at, last_used_at, revoked
-                    FROM agent_keys WHERE agent_id = $1 AND token_hash = $2 AND NOT revoked"
-                   (list agent-id hash))))
+(defun create-agent-shape (agent-id name)
+  "Create a new credential shape for AGENT-ID: the server keypair is kept in
+   the database, the agent keypair's private half is returned to the caller.
+   Returns (values shape-id bearer server-public agent-private)."
+  (multiple-value-bind (server-private server-public) (x25519-generate-keypair)
+    (multiple-value-bind (agent-private agent-public) (x25519-generate-keypair)
+      (let* ((bearer (format nil "focus~d-~a" agent-id (random-token-hex)))
+             (id (db-query
+                  "INSERT INTO agent_key_shapes
+                    (agent_id, name, bearer_hash, token_prefix,
+                     server_private, agent_public)
+                  VALUES ($1, $2, $3, $4, $5, $6) RETURNING id"
+                  agent-id name
+                  (hash-agent-key bearer)
+                  (token-prefix bearer)
+                  (x25519-export-private server-private)
+                  (x25519-export-public agent-public)
+                  :single)))
+        (values id bearer
+                (x25519-export-public server-public)
+                (x25519-export-private agent-private))))))
+
+(defun get-agent-shape-by-bearer (bearer)
+  "Resolve BEARER to a non-revoked shape plist, touching last_used_at.
+   Returns the shape plist (hyphenated keys) or NIL."
+  (let ((results (pg-query-params
+                  "SELECT id, agent_id, name, bearer_hash, token_prefix,
+                          server_private, agent_public,
+                          created_at, last_used_at, revoked
+                   FROM agent_key_shapes
+                   WHERE bearer_hash = $1 AND NOT revoked"
+                  (list (hash-agent-key bearer)))))
     (when results
-      (db-execute "UPDATE agent_keys SET last_used_at = NOW() WHERE id = $1"
+      (db-execute "UPDATE agent_key_shapes SET last_used_at = NOW() WHERE id = $1"
                   (getf (car results) :id))
-      (car results))))
-
-(defun find-agent-by-key (token)
-  "Resolve TOKEN to an agent. Returns agent plist or nil."
-  (let* ((hash (hash-agent-key token))
-         (results (pg-query-params
-                   "SELECT a.id, a.owner_id, a.name, a.description, a.created_at
-                    FROM agents a
-                    JOIN agent_keys k ON k.agent_id = a.id
-                    WHERE k.token_hash = $1 AND NOT k.revoked"
-                   (list hash))))
-    (when results
-      (db-execute "UPDATE agent_keys SET last_used_at = NOW()
-                   WHERE token_hash = $1 AND NOT revoked" hash)
       (hyphenate-plist-keys (car results)))))
 
-(defun revoke-agent-key (agent-id key-id)
-  "Delete a key for an agent (revoked keys are hard-deleted)."
-  (db-execute "DELETE FROM agent_keys WHERE id = $1 AND agent_id = $2"
-              key-id agent-id))
-
-(defun list-agent-keys (agent-id)
-  "List keys for an agent (with a display prefix)."
+(defun list-agent-shapes (agent-id)
+  "List shapes for an agent (secret material excluded)."
   (pg-query-params
-   "SELECT id, agent_id, token_prefix, created_at, last_used_at, revoked
-    FROM agent_keys WHERE agent_id = $1 ORDER BY created_at DESC"
+   "SELECT id, agent_id, name, token_prefix, created_at, last_used_at, revoked
+    FROM agent_key_shapes WHERE agent_id = $1 ORDER BY created_at DESC"
    (list agent-id)))
+
+(defun revoke-agent-shape (agent-id shape-id)
+  "Delete a shape for an agent (revoked shapes are hard-deleted)."
+  (db-execute "DELETE FROM agent_key_shapes WHERE id = $1 AND agent_id = $2"
+              shape-id agent-id))

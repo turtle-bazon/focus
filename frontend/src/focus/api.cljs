@@ -94,14 +94,14 @@
 (defn delete-agent [id on-success on-error]
   (delete (str "/agents/" id) on-success on-error))
 
-(defn fetch-agent-keys [id on-success on-error]
-  (get (str "/agents/" id "/keys") nil on-success on-error))
+(defn fetch-agent-shapes [id on-success on-error]
+  (get (str "/agents/" id "/shapes") nil on-success on-error))
 
-(defn create-agent-key [id on-success on-error]
-  (post (str "/agents/" id "/keys") {} on-success on-error))
+(defn create-agent-shape [id on-success on-error]
+  (post (str "/agents/" id "/shapes") {} on-success on-error))
 
-(defn revoke-agent-key [id key-id on-success on-error]
-  (delete (str "/agents/" id "/keys/" key-id) on-success on-error))
+(defn revoke-agent-shape [id shape-id on-success on-error]
+  (delete (str "/agents/" id "/shapes/" shape-id) on-success on-error))
 
 (defn fetch-labels [on-success on-error]
   (get "/labels" nil on-success on-error))

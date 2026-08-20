@@ -75,49 +75,123 @@
   (when (and text (plusp (length text)))
     (json-> (cl-json:decode-json-from-string text))))
 
-(defun http-error-message (e)
-  "Extract a readable message from a dexador HTTP failure E."
-  (let* ((body (response-body e))
-         (decoded (when (and body (plusp (length body)))
-                    (handler-case (decode-json-text body) (error () nil)))))
-    (or (getf decoded :error)
-        (and body (plusp (length body)) body)
-        (when (response-status e) (format nil "HTTP ~a" (response-status e)))
-        (princ-to-string e))))
-
 (defvar *focus-cli-server* nil
   "Bound to the active site's server URL by WITH-CLI-SITE.")
 
-(defvar *focus-cli-key* nil
-  "Bound to the active site's API key by WITH-CLI-SITE.")
+(defvar *focus-cli-bearer* nil
+  "Bound to the active site's bearer token by WITH-CLI-SITE.")
+
+(defvar *focus-cli-server-public* nil
+  "Bound to the active site's server public key by WITH-CLI-SITE.")
+
+(defvar *focus-cli-agent-private* nil
+  "Bound to the active site's agent private key by WITH-CLI-SITE.")
+
+(defun cli-master-key (&key server-public agent-private)
+  "Compute the envelope master key from stored shape credentials."
+  (envelope-master-key
+   (x25519-shared-secret (x25519-import-private agent-private)
+                         (x25519-import-public server-public))))
+
+(defun envelope-request-payload (master method path query body)
+  "Build the encrypted request envelope JSON for the inner call."
+  (let* ((inner (with-output-to-string (stream)
+                  (cl-json:encode-json-alist
+                   `((:method . ,(string-downcase (symbol-name method)))
+                     (:path . ,path)
+                     (:query . ,(or query ""))
+                     (:body . ,(when body
+                                 (cl-json:encode-json-to-string
+                                  (plist-to-json body)))))
+                   stream)))
+         (ts (get-universal-time)))
+    (multiple-value-bind (nonce ciphertext tag)
+        (envelope-encrypt master +envelope-direction-request+ ts
+                          (flexi-streams:string-to-octets inner
+                                                          :external-format :utf-8))
+      (envelope-encode-json ts nonce ciphertext tag))))
+
+(defun envelope-response-values (master text)
+  "Decrypt an envelope response TEXT. Returns (values status body-text).
+   Signals api-error on malformed, stale, or tampered envelopes."
+  (multiple-value-bind (ts nonce ciphertext tag)
+      (ignore-errors (envelope-parse-json text))
+    (unless ts
+      (error 'api-error :message "Malformed envelope response"))
+    (unless (envelope-time-fresh-p ts)
+      (error 'api-error :message
+             "Envelope response outside the freshness window"))
+    (let* ((plaintext (handler-case
+                          (envelope-decrypt master +envelope-direction-response+
+                                            ts nonce ciphertext tag)
+                        (ironclad:bad-authentication-tag ()
+                          (error 'api-error :message
+                                 "Envelope authentication failed"))))
+           (inner (cl-json:decode-json-from-string
+                   (flexi-streams:octets-to-string plaintext
+                                                   :external-format :utf-8))))
+      (values (or (envelope-json-key inner "status") 500)
+              (or (envelope-json-key inner "body") "")))))
+
+(defun condition-body-text (e)
+  "Extract the failed response body of a dexador error E as text."
+  (let ((body (response-body e)))
+    (typecase body
+      (stream (read-all-stream body))
+      (string body)
+      (vector (flexi-streams:octets-to-string body :external-format :utf-8))
+      (t (princ-to-string body)))))
+
+(defun failed-call-message (master e)
+  "Best-effort human message for a failed enveloped API call."
+  (let ((text (ignore-errors (condition-body-text e))))
+    (or (when text
+          (ignore-errors
+            (multiple-value-bind (status body-text)
+                (envelope-response-values master text)
+              (declare (ignore status))
+              (getf (decode-json-text body-text) :error))))
+        (when text
+          (ignore-errors (getf (decode-json-text text) :error)))
+        (format nil "HTTP ~a" (response-status e)))))
 
 (defun api-call (method path &key query body (server *focus-cli-server*)
-                                   (key *focus-cli-key*))
-  "Call the API. Returns decoded plist(s) or signals api-error. SERVER and KEY
-  fall back to the site bound by WITH-CLI-SITE."
+                                   (bearer *focus-cli-bearer*)
+                                   (server-public *focus-cli-server-public*)
+                                   (agent-private *focus-cli-agent-private*))
+  "Call the API through the encrypted agent envelope. Returns decoded plist(s)
+   or signals api-error. Credentials fall back to the site bound by
+   WITH-CLI-SITE."
   (unless server
     (error 'api-error :message
-           "No server. Run: focus-cli add-site --name NAME --url URL --key KEY"))
-  (unless key
+           "No server. Run: focus-cli add-site --name NAME --url URL --bearer BEARER --server-public KEY --agent-private KEY"))
+  (unless (and bearer server-public agent-private)
     (error 'api-error :message
-           "No API key. Run: focus-cli add-site --name NAME --url URL --key KEY"))
-  (let ((url (format nil "~a~a~@[?~a~]" server path query)))
-      (handler-case
-          (multiple-value-bind (resp status)
-              (dexador:request url :method method :bearer-auth key
-                               :content (when body
-                                          (cl-json:encode-json-to-string (plist-to-json body)))
-                               :want-stream t)
-            (let ((decoded (decode-json-text (read-all-stream resp))))
-              (unless (<= 200 status 299)
+           "Incomplete credentials. Run: focus-cli add-site --name NAME --url URL --bearer BEARER --server-public KEY --agent-private KEY"))
+  (let* ((master (cli-master-key :server-public server-public
+                                 :agent-private agent-private))
+         (payload (envelope-request-payload master method path query body))
+         (url (format nil "~a/api/agent" server)))
+    (handler-case
+        (multiple-value-bind (resp status)
+            (dexador:request url :method :post :bearer-auth bearer
+                             :content payload
+                             :headers '(("content-type" . "application/json"))
+                             :want-stream t)
+          (declare (ignore status))
+          (multiple-value-bind (inner-status body-text)
+              (envelope-response-values master (read-all-stream resp))
+            (unless (<= 200 inner-status 299)
+              (let ((decoded (decode-json-text body-text)))
                 (error 'api-error :message
-                       (or (getf decoded :error) (format nil "HTTP ~a" status))))
-              decoded))
-        (api-error (e) (error e))
-        (dexador.error:http-request-failed (e)
-          (error 'api-error :message (http-error-message e)))
-        (error (e)
-          (error 'api-error :message (princ-to-string e))))))
+                       (or (getf decoded :error)
+                           (format nil "HTTP ~a" inner-status)))))
+            (decode-json-text body-text)))
+      (api-error (e) (error e))
+      (dexador.error:http-request-failed (e)
+        (error 'api-error :message (failed-call-message master e)))
+      (error (e)
+        (error 'api-error :message (princ-to-string e))))))
 
 (defmacro with-api-errors (&body body)
   "Run BODY, printing any api-error and continuing."
@@ -126,16 +200,18 @@
        (format t "Error: ~a~%" (api-error-message e)))))
 
 (defmacro with-cli-site ((site) &body body)
-  "Run BODY with *focus-cli-server* and *focus-cli-key* bound from SITE's config.
-  SITE is a form evaluating to a site name."
+  "Run BODY with the active site's connection credentials bound. SITE is a
+   form evaluating to a site name."
   `(let* ((site ,site)
           (config (cli-site-config site)))
      (unless config
        (error 'api-error :message
-              (format nil "Site ~a not configured. Run: focus-cli add-site --name ~a --url URL --key KEY"
+              (format nil "Site ~a not configured. Run: focus-cli add-site --name ~a --url URL --bearer BEARER --server-public KEY --agent-private KEY"
                       site site)))
      (let ((*focus-cli-server* (getf config :server-url))
-           (*focus-cli-key* (getf config :key)))
+           (*focus-cli-bearer* (getf config :bearer))
+           (*focus-cli-server-public* (getf config :server-public))
+           (*focus-cli-agent-private* (getf config :agent-private)))
        ,@body)))
 
 (defun make-site-option ()
@@ -283,35 +359,42 @@
   "Create the add-site command."
   (clingon:make-command
    :name "add-site"
-   :description "Add a site (server URL + API key) to ~/.focus-cli"
+   :description "Add a site (server URL + agent shape credentials) to ~/.focus-cli"
    :handler (lambda (cmd)
               (with-api-errors
                 (let ((name (clingon:getopt cmd :name))
                       (url (clingon:getopt cmd :url))
-                      (key (clingon:getopt cmd :key)))
-                  (if (and name url key)
-                      (progn
-                        (cli-add-site name url key (clingon:getopt cmd :agent)))
-                      (format t "Usage: focus-cli add-site --name NAME --url URL --key KEY~%")))))
+                      (bearer (clingon:getopt cmd :bearer))
+                      (server-public (clingon:getopt cmd :server-public))
+                      (agent-private (clingon:getopt cmd :agent-private)))
+                  (if (and name url bearer server-public agent-private)
+                      (cli-add-site name url bearer server-public agent-private)
+                      (format t "Usage: focus-cli add-site --name NAME --url URL --bearer BEARER --server-public KEY --agent-private KEY~%")))))
    :options (list (clingon:make-option :string
-                                       :long-name "name"
-                                       :description "Site name"
-                                       :key :name
-                                       :required t)
+                                        :long-name "name"
+                                        :description "Site name"
+                                        :key :name
+                                        :required t)
                   (clingon:make-option :string
-                                       :long-name "url"
-                                       :description "Server base URL, e.g. http://host:8080"
-                                       :key :url
-                                       :required t)
+                                        :long-name "url"
+                                        :description "Server base URL, e.g. http://host:8080"
+                                        :key :url
+                                        :required t)
                   (clingon:make-option :string
-                                       :long-name "key"
-                                       :description "Agent API key (focusN-...)"
-                                       :key :key
-                                       :required t)
-                  (clingon:make-option :integer
-                                       :long-name "agent"
-                                       :description "Agent ID"
-                                       :key :agent))))
+                                        :long-name "bearer"
+                                        :description "Shape bearer token (shown once)"
+                                        :key :bearer
+                                        :required t)
+                  (clingon:make-option :string
+                                        :long-name "server-public"
+                                        :description "Server X25519 public key (base64)"
+                                        :key :server-public
+                                        :required t)
+                  (clingon:make-option :string
+                                        :long-name "agent-private"
+                                        :description "Agent X25519 private key (base64)"
+                                        :key :agent-private
+                                        :required t))))
 
 (defun make-remote-add-board-command ()
   "Create the add-board command."
@@ -366,13 +449,13 @@
               (let ((sites (getf (read-cli-config) :sites)))
                 (if sites
                     (iter (for (name . site) in sites)
-                      (format t "~a  server=~a  key=~a~%"
+                      (format t "~a  server=~a  bearer=~a~%"
                               name
                               (or (getf site :server-url) "-")
-                              (mask-key (getf site :key)))
+                              (mask-key (getf site :bearer)))
                       (iter (for (local . remote) in (getf site :boards))
                         (format t "    ~a -> ~a~%" local remote)))
-                    (format t "No sites configured. Run: focus-cli add-site --name NAME --url URL --key KEY~%"))))
+                    (format t "No sites configured. Run: focus-cli add-site --name NAME --url URL --bearer BEARER --server-public KEY --agent-private KEY~%"))))
    :options nil))
 
 (defun make-remote-list-boards-command ()

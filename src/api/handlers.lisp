@@ -250,148 +250,170 @@
               (error-response "Ticket not found" 404)))
         (error-response "Invalid ticket ID"))))
 
+(defun ticket-body-fields (body)
+  "Parse the common ticket fields from a JSON BODY alist into a plist,
+   coercing numeric IDs given as strings."
+  (list :title (json-assoc :title body)
+        :description (json-assoc :description body)
+        :status (json-assoc :status body)
+        :priority (json-assoc :priority body)
+        :assignee-id (as-int (json-assoc :assignee_id body))
+        :assignee-type (json-assoc :assignee_type body)
+        :color (json-assoc :color body)
+        :position (json-assoc :position body)
+        :board-id (as-int (json-assoc :board_id body))))
+
+(defun ensure-assignee-board-member (board-id assignee-type assignee-id)
+  "Make the ASSIGNEE a member of BOARD-ID (member type defaults to user)."
+  (when (and board-id assignee-id)
+    (ensure-board-member board-id (or assignee-type "user") assignee-id)))
+
+(defun actor-ids (env)
+  "Return (values user-id agent-id) for the acting identity."
+  (let ((actor (get-actor env)))
+    (values (or (getf actor :user-id) (get-user-id-from-env env))
+            (getf actor :agent-id))))
+
 (defun handle-create-ticket (env)
   "POST /api/tickets"
-  (bind ((body (parse-json-body env))
-         (title (json-assoc :title body))
-         (description (json-assoc :description body))
-         (status (json-assoc :status body))
-         (priority (json-assoc :priority body))
-         (assignee-id (json-assoc :assignee_id body))
-         (assignee-type (json-assoc :assignee_type body))
-         (color (json-assoc :color body))
-         (board-id (json-assoc :board_id body)))
+  (bind ((fields (ticket-body-fields (parse-json-body env)))
+         (title (getf fields :title))
+         (board-id (getf fields :board-id)))
     (unless title
       (return-from handle-create-ticket (error-response "Title is required")))
-    (let ((board-id (when board-id
-                      (if (stringp board-id) (parse-integer board-id) board-id)))))
-      (when board-id
-        (let ((forbidden (actor-board-access-error env board-id)))
-          (when forbidden (return-from handle-create-ticket forbidden))))
-      (bind ((id (create-ticket title
-                                :description description
-                                :status status
-                                :priority priority
-                                :assignee-id (when assignee-id
-                                              (if (stringp assignee-id)
-                                                  (parse-integer assignee-id)
-                                                  assignee-id))
-                                :assignee-type assignee-type
-                                :color color
-                                :board-id board-id)))
-        (let ((ticket (get-ticket-by-id id))
-              (user-id (or (actor-user-id env) (get-user-id-from-env env)))
-              (agent-id (actor-agent-id env)))
-          (when (and ticket assignee-id)
-            (ensure-board-member (getf ticket :board-id)
-                                 (or assignee-type "user")
-                                 (if (stringp assignee-id)
-                                     (parse-integer assignee-id)
-                                     assignee-id)))
-          (log-activity id user-id "created"
-                        :agent-id agent-id
-                        :details `((:title . ,title)))
-          (ws-broadcast-ticket-created ticket)
-          (json-response `(:id ,id) 201)))))
+    (when board-id
+      (let ((forbidden (actor-board-access-error env board-id)))
+        (when forbidden (return-from handle-create-ticket forbidden))))
+    (bind ((id (create-ticket title
+                              :description (getf fields :description)
+                              :status (getf fields :status)
+                              :priority (getf fields :priority)
+                              :assignee-id (getf fields :assignee-id)
+                              :assignee-type (getf fields :assignee-type)
+                              :color (getf fields :color)
+                              :board-id board-id))
+           (ticket (get-ticket-by-id id)))
+      (multiple-value-bind (user-id agent-id) (actor-ids env)
+        (ensure-assignee-board-member (getf ticket :board-id)
+                                      (getf fields :assignee-type)
+                                      (getf fields :assignee-id))
+        (log-activity id user-id "created"
+                      :agent-id agent-id
+                      :details `((:title . ,title)))
+        (ws-broadcast-ticket-created ticket)
+        (json-response `(:id ,id) 201)))))
+
+(defun validate-status-transition (old-ticket new-board status)
+  "Enforce lifecycle transitions when STATUS changes. Returns
+   (values error-response-or-nil coerced-status). On an unchanged board every
+   move must be allowed by the workflow; on a board change an unknown status
+   falls back to the destination board's first status."
+  (if (and status (not (equal status (getf old-ticket :status))))
+      (if (equal new-board (getf old-ticket :board-id))
+          (if (transition-allowed-p new-board (getf old-ticket :status) status)
+              (values nil status)
+              (values (error-response
+                       "Status transition is not allowed by this board's workflow")
+                      status))
+          (let ((codes (mapcar (lambda (s) (getf s :code))
+                               (list-board-statuses new-board))))
+            (values nil
+                    (if (member status codes :test #'string=)
+                        status
+                        (car codes)))))
+      (values nil status)))
+
+(defun ensure-moved-ticket-members (new-board ticket id)
+  "After moving TICKET to NEW-BOARD, re-ensure its assignee and observers
+   belong to the destination."
+  (when (getf ticket :assignee-id)
+    (ensure-board-member new-board
+                         (or (getf ticket :assignee-type) "user")
+                         (getf ticket :assignee-id)))
+  (iter (for obs in (list-ticket-observers id))
+    (ensure-board-member new-board
+                         (getf obs :observer_type)
+                         (getf obs :observer_id))))
+
+(defun log-ticket-update-activity (id user-id agent-id old-ticket title status priority)
+  "Log status/priority/title change activity for an updated ticket. A change
+   is only recorded for fields the request actually supplied."
+  (let ((status-changed (and status (not (equal (getf old-ticket :status) status))))
+        (priority-changed (and priority (not (equal (getf old-ticket :priority) priority))))
+        (title-changed (and title (not (equal (getf old-ticket :title) title)))))
+    (when (and status-changed priority-changed)
+      (log-activity id user-id "status_priority_changed"
+                    :agent-id agent-id
+                    :details `(("old-status" . ,(getf old-ticket :status))
+                               ("new-status" . ,status)
+                               ("old-priority" . ,(getf old-ticket :priority))
+                               ("new-priority" . ,priority))))
+    (when (and status-changed (not priority-changed))
+      (log-activity id user-id "status_changed"
+                    :agent-id agent-id
+                    :details `((:from . ,(getf old-ticket :status)) (:to . ,status))))
+    (when (and priority-changed (not status-changed))
+      (log-activity id user-id "priority_changed"
+                    :agent-id agent-id
+                    :details `((:from . ,(getf old-ticket :priority)) (:to . ,priority))))
+    (when title-changed
+      (log-activity id user-id "title_changed"
+                    :agent-id agent-id
+                    :details `((:from . ,(getf old-ticket :title)) (:to . ,title))))))
+
+(defun apply-ticket-update (id fields old-ticket new-board env)
+  "Persist the update (or reposition), run post-update side effects, and
+   return the final Clack response."
+  (multiple-value-bind (transition-error status)
+      (validate-status-transition old-ticket new-board (getf fields :status))
+    (when transition-error
+      (return-from apply-ticket-update transition-error))
+    (bind ((ticket (if (getf fields :position)
+                       (reposition-ticket id
+                                          (or status (getf old-ticket :status))
+                                          (or (getf fields :priority) "medium")
+                                          (getf fields :position))
+                       (update-ticket id
+                                      :title (getf fields :title)
+                                      :description (getf fields :description)
+                                      :status status
+                                      :priority (getf fields :priority)
+                                      :assignee-id (getf fields :assignee-id)
+                                      :assignee-type (getf fields :assignee-type)
+                                      :color (getf fields :color)
+                                      :board-id (when (getf fields :board-id) new-board)))))
+      (if ticket
+          (progn
+            (unless (equal new-board (getf old-ticket :board-id))
+              ;; Moving to another board: re-ensure assignee and observers.
+              (ensure-moved-ticket-members new-board ticket id))
+            (ensure-assignee-board-member (getf ticket :board-id)
+                                          (getf fields :assignee-type)
+                                          (getf fields :assignee-id))
+            (multiple-value-bind (user-id agent-id) (actor-ids env)
+              (log-ticket-update-activity id user-id agent-id old-ticket
+                                          (getf fields :title) status
+                                          (getf fields :priority))
+              ;; Any edit makes the editor an observer of the ticket.
+              (when (and user-id (get-user-by-id user-id))
+                (add-ticket-observer id "user" user-id)))
+            (ws-broadcast-ticket-update ticket)
+            (json-response ticket))
+          (error-response "Ticket not found" 404)))))
 
 (defun handle-update-ticket (env)
   "PUT /api/tickets/:id"
   (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)$")))
-    (if id
-        (bind ((body (parse-json-body env))
-               (title (json-assoc :title body))
-               (description (json-assoc :description body))
-               (status (json-assoc :status body))
-               (priority (json-assoc :priority body))
-               (assignee-id (json-assoc :assignee_id body))
-               (assignee-type (json-assoc :assignee_type body))
-               (color (json-assoc :color body))
-               (position (json-assoc :position body))
-               (board-id (json-assoc :board_id body))
-               (old-ticket (get-ticket-by-id id))
-               (user-id (or (actor-user-id env) (get-user-id-from-env env)))
-               (agent-id (actor-agent-id env))
-               (new-board (if board-id
-                              (if (stringp board-id)
-                                  (parse-integer board-id)
-                                  board-id)
-                              (getf old-ticket :board-id))))
-          (unless old-ticket
-            (return-from handle-update-ticket (error-response "Ticket not found" 404)))
-          (let ((forbidden (actor-board-access-error env (getf old-ticket :board-id))))
-            (when forbidden (return-from handle-update-ticket forbidden)))
-          ;; Enforce lifecycle transitions.
-          ;; When the destination board is unchanged, every status move must be allowed.
-          (when (and status
-                     (not (equal status (getf old-ticket :status))))
-            (if (equal new-board (getf old-ticket :board-id))
-                (unless (transition-allowed-p new-board (getf old-ticket :status) status)
-                  (return-from handle-update-ticket
-                    (error-response "Status transition is not allowed by this board's workflow")))
-                (let ((codes (mapcar (lambda (s) (getf s :code)) (list-board-statuses new-board))))
-                  (unless (member status codes :test #'string=)
-                    (setf status (car codes))))))
-          (bind ((ticket (if position
-                              (reposition-ticket id
-                                                 (or status (getf old-ticket :status))
-                                                 (or priority "medium")
-                                                 position)
-                              (update-ticket id
-                                            :title title
-                                            :description description
-                                            :status status
-                                            :priority priority
-                                            :assignee-id assignee-id
-                                            :assignee-type assignee-type
-                                            :color color
-                                            :board-id (when board-id new-board)))))
-          (when (and ticket (not (equal new-board (getf old-ticket :board-id))))
-            ;; Moving to another board: re-ensure assignee and observers belong to it.
-            (when (getf ticket :assignee-id)
-              (ensure-board-member new-board
-                                   (or (getf ticket :assignee-type) "user")
-                                   (getf ticket :assignee-id)))
-            (iter (for obs in (list-ticket-observers id))
-              (ensure-board-member new-board
-                                   (getf obs :observer_type)
-                                   (getf obs :observer_id))))
-          (when (and ticket assignee-id)
-            ;; New/changed assignee automatically joins the board.
-            (let ((parsed (if (stringp assignee-id) (parse-integer assignee-id) assignee-id)))
-              (ensure-board-member (getf ticket :board-id)
-                                   (or assignee-type "user")
-                                   parsed)))
-          (if ticket
-              (progn
-                (let ((status-changed (and old-ticket status (not (equal (getf old-ticket :status) status))))
-                      (priority-changed (and old-ticket priority (not (equal (getf old-ticket :priority) priority))))
-                      (title-changed (and old-ticket title (not (equal (getf old-ticket :title) title)))))
-                  (when (and status-changed priority-changed)
-                    (log-activity id user-id "status_priority_changed"
-                                  :agent-id agent-id
-                                  :details `(("old-status" . ,(getf old-ticket :status))
-                                             ("new-status" . ,status)
-                                             ("old-priority" . ,(getf old-ticket :priority))
-                                             ("new-priority" . ,priority))))
-                  (when (and status-changed (not priority-changed))
-                    (log-activity id user-id "status_changed"
-                                  :agent-id agent-id
-                                  :details `((:from . ,(getf old-ticket :status)) (:to . ,status))))
-                  (when (and priority-changed (not status-changed))
-                    (log-activity id user-id "priority_changed"
-                                  :agent-id agent-id
-                                  :details `((:from . ,(getf old-ticket :priority)) (:to . ,priority))))
-                  (when title-changed
-                    (log-activity id user-id "title_changed"
-                                  :agent-id agent-id
-                                  :details `((:from . ,(getf old-ticket :title)) (:to . ,title)))))
-                ;; Any edit makes the editor an observer of the ticket.
-                (when (and user-id (get-user-by-id user-id))
-                  (add-ticket-observer id "user" user-id))
-                (ws-broadcast-ticket-update ticket)
-                (json-response ticket))
-              (error-response "Ticket not found" 404))))
-        (error-response "Invalid ticket ID"))))
+    (unless id
+      (return-from handle-update-ticket (error-response "Invalid ticket ID")))
+    (bind ((fields (ticket-body-fields (parse-json-body env)))
+           (old-ticket (get-ticket-by-id id))
+           (new-board (or (getf fields :board-id) (getf old-ticket :board-id))))
+      (unless old-ticket
+        (return-from handle-update-ticket (error-response "Ticket not found" 404)))
+      (let ((forbidden (actor-board-access-error env (getf old-ticket :board-id))))
+        (when forbidden (return-from handle-update-ticket forbidden)))
+      (apply-ticket-update id fields old-ticket new-board env))))
 
 (defun handle-delete-ticket (env)
   "DELETE /api/tickets/:id"

@@ -128,46 +128,48 @@ SQL uses $1, $2, etc. PARAMS is a list of values. Returns rows as plists."
 
 ;;; Migration runner
 
+(defun dollar-quote-at-p (sql i)
+  "T if a $$ delimiter starts at position I of SQL."
+  (and (< (1+ i) (length sql))
+       (char= (char sql i) #\$)
+       (char= (char sql (1+ i)) #\$)))
+
+(defun blank-statement-p (current)
+  "T if the accumulated statement CURRENT trims to nothing."
+  (string= "" (string-trim " " current)))
+
 (defun split-sql (sql)
   "Split SQL string by semicolons, handling dollar-quoted strings."
   (bind ((result '())
         (current (make-array 0 :element-type 'character :adjustable t :fill-pointer 0))
-        (i 0)
-        (len (length sql))
         (in-dollar nil))
-    (iter (while (< i len))
-      (bind ((ch (char sql i)))
-        (cond
-          ;; Check for $$ delimiter
-          ((and (char= ch #\$)
-                (< (1+ i) len)
-                (char= (char sql (1+ i)) #\$))
-           (if in-dollar
-               (progn
-                 (vector-push-extend #\$ current)
-                 (vector-push-extend #\$ current)
-                 (incf i 2)
-                 (setf in-dollar nil))
-               (progn
-                 (vector-push-extend #\$ current)
-                 (vector-push-extend #\$ current)
-                 (incf i 2)
-                 (setf in-dollar t))))
-          ;; Split on semicolons only when not inside dollar-quoted block
-          ((and (char= ch #\;) (not in-dollar))
-            (bind ((trimmed (string-trim " " (copy-seq current))))
-             (unless (string= trimmed "")
-               (push trimmed result)))
-           (setf current (make-array 0 :element-type 'character :adjustable t :fill-pointer 0))
-           (incf i))
-          ;; Regular character
-          (t
-           (vector-push-extend ch current)
-           (incf i)))))
-    ;; Push the last statement
-    (bind ((trimmed (string-trim " " (copy-seq current))))
-      (unless (string= trimmed "")
-        (push trimmed result)))
+    (labels ((advance (ch)
+               (vector-push-extend ch current))
+             (start-new-statement ()
+               (setf current
+                     (make-array 0 :element-type 'character :adjustable t :fill-pointer 0))))
+      (iter (with i = 0)
+            (with len = (length sql))
+            (while (< i len))
+            (for ch = (char sql i))
+            (cond
+              ;; $$ toggles a dollar-quoted block and consumes both characters
+              ((dollar-quote-at-p sql i)
+               (advance #\$) (advance #\$)
+               (setf in-dollar (not in-dollar))
+               (incf i 2))
+              ;; Split on semicolons only when not inside dollar-quoted block
+              ((and (char= ch #\;) (not in-dollar))
+               (unless (blank-statement-p current)
+                 (push (string-trim " " (copy-seq current)) result))
+               (start-new-statement)
+               (incf i))
+              ;; Regular character
+              (t
+               (advance ch)
+               (incf i)))))
+    (unless (blank-statement-p current)
+      (push (string-trim " " (copy-seq current)) result))
     (nreverse result)))
 
 (defun migrate-up (&optional (migrations *migrations*))

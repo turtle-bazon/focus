@@ -43,6 +43,33 @@
   "Print DATA as a single JSON line."
   (format t "~a~%" (cl-json:encode-json-to-string (plist-to-json data))))
 
+;;; Compact clingon option constructors
+
+(defun opt-string (long-name description key &key required initial-value)
+  "A clingon string option."
+  (clingon:make-option :string
+                       :long-name long-name
+                       :description description
+                       :key key
+                       :required required
+                       :initial-value initial-value))
+
+(defun opt-int (long-name description key &key required initial-value)
+  "A clingon integer option."
+  (clingon:make-option :integer
+                       :long-name long-name
+                       :description description
+                       :key key
+                       :required required
+                       :initial-value initial-value))
+
+(defun opt-flag (long-name description key)
+  "A clingon boolean flag option."
+  (clingon:make-option :flag
+                       :long-name long-name
+                       :description description
+                       :key key))
+
 (defparameter +focus-cli-config-path+
   (merge-pathnames #P".focus-cli" (user-homedir-pathname)))
 
@@ -180,64 +207,41 @@
           (iter (for comment in comments)
             (format t "    [#~a] ~a~%" (getf comment :id) (getf comment :body)))))))
 
+(defun cli-list-handler (cmd)
+  "Handler for the local list command."
+  (with-cli-db
+    (bind ((status (clingon:getopt cmd :status))
+           (priority (clingon:getopt cmd :priority))
+           (assignee (clingon:getopt cmd :assignee))
+           (board (or (clingon:getopt cmd :board) (cli-default-board-id)))
+           (limit (clingon:getopt cmd :limit))
+           (page (clingon:getopt cmd :page))
+           (search (clingon:getopt cmd :search))
+           (json? (clingon:getopt cmd :json)))
+      (if search
+          (print-ticket-list (search-tickets search) json?)
+          (print-ticket-list (list-tickets :status status
+                                           :priority priority
+                                           :assignee-id assignee
+                                           :board-id board
+                                           :limit limit
+                                           :page page)
+                             json?)))))
+
 (defun make-list-command ()
   "Create the list command."
   (clingon:make-command
    :name "list"
    :description "List tickets"
-   :handler (lambda (cmd)
-              (with-cli-db
-                (bind ((status (clingon:getopt cmd :status))
-                       (priority (clingon:getopt cmd :priority))
-                       (assignee (clingon:getopt cmd :assignee))
-                       (board (or (clingon:getopt cmd :board) (cli-default-board-id)))
-                       (limit (clingon:getopt cmd :limit))
-                       (page (clingon:getopt cmd :page))
-                       (search (clingon:getopt cmd :search))
-                       (json? (clingon:getopt cmd :json)))
-                  (if search
-                      (print-ticket-list (search-tickets search) json?)
-                      (print-ticket-list (list-tickets :status status
-                                                       :priority priority
-                                                       :assignee-id assignee
-                                                       :board-id board
-                                                       :limit limit
-                                                       :page page)
-                                         json?)))))
-   :options (list (clingon:make-option :string
-                                       :long-name "status"
-                                       :description "Filter by status"
-                                       :key :status)
-                  (clingon:make-option :string
-                                       :long-name "priority"
-                                       :description "Filter by priority"
-                                       :key :priority)
-                  (clingon:make-option :integer
-                                       :long-name "assignee"
-                                       :description "Filter by assignee ID"
-                                       :key :assignee)
-                  (clingon:make-option :integer
-                                       :long-name "board"
-                                       :description "Filter by board ID"
-                                       :key :board)
-                  (clingon:make-option :integer
-                                       :long-name "limit"
-                                       :description "Max tickets to show"
-                                       :key :limit
-                                       :initial-value 20)
-                  (clingon:make-option :integer
-                                       :long-name "page"
-                                       :description "Page number"
-                                       :key :page
-                                       :initial-value 1)
-                  (clingon:make-option :string
-                                       :long-name "search"
-                                       :description "Full-text search query"
-                                       :key :search)
-                  (clingon:make-option :flag
-                                       :long-name "json"
-                                       :description "Output as JSON"
-                                       :key :json))))
+   :handler #'cli-list-handler
+   :options (list (opt-string "status" "Filter by status" :status)
+                  (opt-string "priority" "Filter by priority" :priority)
+                  (opt-int "assignee" "Filter by assignee ID" :assignee)
+                  (opt-int "board" "Filter by board ID" :board)
+                  (opt-int "limit" "Max tickets to show" :limit :initial-value 20)
+                  (opt-int "page" "Page number" :page :initial-value 1)
+                  (opt-string "search" "Full-text search query" :search)
+                  (opt-flag "json" "Output as JSON" :json))))
 
 (defun make-show-command ()
   "Create the show command."
@@ -256,108 +260,69 @@
                                        :description "Output as JSON"
                                        :key :json))))
 
+(defun cli-create-handler (cmd)
+  "Handler for the local create command."
+  (with-cli-db
+    (bind ((title (clingon:getopt cmd :title))
+           (description (clingon:getopt cmd :description))
+           (priority (clingon:getopt cmd :priority))
+           (status (clingon:getopt cmd :status))
+           (board (or (clingon:getopt cmd :board) (cli-default-board-id)))
+           (assignee (clingon:getopt cmd :assignee))
+           (color (clingon:getopt cmd :color)))
+      (let ((id (create-ticket title
+                               :description description
+                               :priority priority
+                               :status status
+                               :board-id board
+                               :assignee-id assignee
+                               :color color)))
+        (format t "Created ticket ~a~%" id)))))
+
 (defun make-create-command ()
   "Create the create command."
   (clingon:make-command
    :name "create"
    :description "Create a new ticket"
-   :handler (lambda (cmd)
-              (with-cli-db
-                (bind ((title (clingon:getopt cmd :title))
-                       (description (clingon:getopt cmd :description))
-                       (priority (clingon:getopt cmd :priority))
-                       (status (clingon:getopt cmd :status))
-                       (board (or (clingon:getopt cmd :board) (cli-default-board-id)))
-                       (assignee (clingon:getopt cmd :assignee))
-                       (color (clingon:getopt cmd :color)))
-                  (let ((id (create-ticket title
-                                           :description description
-                                           :priority priority
-                                           :status status
-                                           :board-id board
-                                           :assignee-id assignee
-                                           :color color)))
-                    (format t "Created ticket ~a~%" id)))))
-   :options (list (clingon:make-option :string
-                                       :long-name "title"
-                                       :description "Ticket title"
-                                       :key :title
-                                       :required t)
-                  (clingon:make-option :string
-                                       :long-name "description"
-                                       :description "Ticket description"
-                                       :key :description)
-                  (clingon:make-option :string
-                                       :long-name "priority"
-                                       :description "Ticket priority"
-                                       :key :priority
-                                       :initial-value "medium")
-                  (clingon:make-option :string
-                                       :long-name "status"
-                                       :description "Ticket status"
-                                       :key :status
-                                       :initial-value "open")
-                  (clingon:make-option :integer
-                                       :long-name "board"
-                                       :description "Board ID"
-                                       :key :board)
-                  (clingon:make-option :integer
-                                       :long-name "assignee"
-                                       :description "Assignee ID"
-                                       :key :assignee)
-                  (clingon:make-option :string
-                                       :long-name "color"
-                                       :description "Card color"
-                                       :key :color))))
+   :handler #'cli-create-handler
+   :options (list (opt-string "title" "Ticket title" :title :required t)
+                  (opt-string "description" "Ticket description" :description)
+                  (opt-string "priority" "Ticket priority" :priority :initial-value "medium")
+                  (opt-string "status" "Ticket status" :status :initial-value "open")
+                  (opt-int "board" "Board ID" :board)
+                  (opt-int "assignee" "Assignee ID" :assignee)
+                  (opt-string "color" "Card color" :color))))
+
+(defun cli-update-handler (cmd)
+  "Handler for the local update command."
+  (with-cli-db
+    (let* ((id (cli-int-arg cmd 0))
+           (ticket (when id
+                     (update-ticket id
+                                    :title (clingon:getopt cmd :title)
+                                    :description (clingon:getopt cmd :description)
+                                    :status (clingon:getopt cmd :status)
+                                    :priority (clingon:getopt cmd :priority)
+                                    :assignee-id (clingon:getopt cmd :assignee)
+                                    :board-id (clingon:getopt cmd :board)
+                                    :color (clingon:getopt cmd :color)))))
+      (if ticket
+          (format t "Updated ticket ~a~%" id)
+          (format t "Ticket not found~%")))))
 
 (defun make-update-command ()
   "Create the update command."
   (clingon:make-command
    :name "update"
    :description "Update a ticket"
-   :handler (lambda (cmd)
-              (with-cli-db
-                (let* ((id (cli-int-arg cmd 0))
-                       (ticket (when id
-                                 (update-ticket id
-                                                :title (clingon:getopt cmd :title)
-                                                :description (clingon:getopt cmd :description)
-                                                :status (clingon:getopt cmd :status)
-                                                :priority (clingon:getopt cmd :priority)
-                                                :assignee-id (clingon:getopt cmd :assignee)
-                                                :board-id (clingon:getopt cmd :board)
-                                                :color (clingon:getopt cmd :color)))))
-                  (if ticket
-                      (format t "Updated ticket ~a~%" id)
-                      (format t "Ticket not found~%")))))
-   :options (list (clingon:make-option :string
-                                       :long-name "title"
-                                       :description "New title"
-                                       :key :title)
-                  (clingon:make-option :string
-                                       :long-name "description"
-                                       :description "New description"
-                                       :key :description)
-                  (clingon:make-option :string
-                                       :long-name "status"
-                                       :description "New status"
-                                       :key :status)
-                  (clingon:make-option :string
-                                       :long-name "priority"
-                                       :description "New priority"
-                                       :key :priority)
-                  (clingon:make-option :integer
-                                       :long-name "assignee"
-                                       :description "New assignee ID"
-                                       :key :assignee)
-                  (clingon:make-option :integer
-                                       :long-name "board"
-                                       :description "New board ID"
-                                       :key :board)
-                  (clingon:make-option :string
-                                       :long-name "color"
-                                       :description "New card color"
-                                       :key :color))))
+   :handler #'cli-update-handler
+   :options (list (opt-string "title" "New title" :title)
+                  (opt-string "description" "New description" :description)
+                  (opt-string "status" "New status" :status)
+                  (opt-string "priority" "New priority" :priority)
+                  (opt-int "assignee" "New assignee ID" :assignee)
+                  (opt-int "board" "New board ID" :board)
+                  (opt-string "color" "New card color" :color))))
 
 (defun make-delete-command ()
   "Create the delete command."
@@ -720,71 +685,72 @@
                                         :description "Board ID to work in"
                                         :key :board))))
 
+(defun agent-init-identity (owner name description config)
+  "Return (values agent-id bearer server-public agent-private) for the init
+   flow, creating the agent and its first credential shape when missing."
+  (let ((agent-id (getf config :agent-id))
+        (bearer (getf config :bearer))
+        (server-public (getf config :server-public))
+        (agent-private (getf config :agent-private)))
+    (unless (and agent-id (get-agent-by-id agent-id))
+      (setf agent-id
+            (create-agent owner (or name "CLI Agent") :description description))
+      (format t "Created agent ~a~%" agent-id))
+    (unless bearer
+      (multiple-value-bind (shape-id new-bearer new-server-public new-agent-private)
+          (create-agent-shape agent-id (or name "cli"))
+        (declare (ignore shape-id))
+        (setf bearer new-bearer
+              server-public new-server-public
+              agent-private new-agent-private)
+        (print-agent-shape-secrets agent-id bearer server-public agent-private)))
+    (values agent-id bearer server-public agent-private)))
+
+(defun agent-init-board (owner board-name type board-id agent-id)
+  "Return a usable BOARD-ID, creating and sharing a new board when asked."
+  (unless (and board-id (get-board-by-id board-id))
+    (when board-name
+      (setf board-id (create-board board-name (or type "common") owner))
+      (ensure-board-member board-id "agent" agent-id)
+      (format t "Created board ~a: ~a~%" board-id board-name)))
+  board-id)
+
+(defun cli-agent-init-handler (cmd)
+  "Handler for the local agent init command."
+  (with-cli-db
+    (let ((owner (clingon:getopt cmd :owner)))
+      (if (null owner)
+          (format t "Specify --owner~%")
+          (let* ((config (cli-site-config "default")))
+            (multiple-value-bind (agent-id bearer server-public agent-private)
+                (agent-init-identity owner
+                                     (clingon:getopt cmd :name)
+                                     (clingon:getopt cmd :description)
+                                     config)
+              (let ((board-id (agent-init-board owner
+                                                (clingon:getopt cmd :board)
+                                                (clingon:getopt cmd :type)
+                                                (getf config :board-id)
+                                                agent-id)))
+                (write-cli-config (list :agent-id agent-id
+                                        :bearer bearer
+                                        :server-public server-public
+                                        :agent-private agent-private
+                                        :board-id board-id))
+                (format t "Agent identity stored. Run 'focus status' to review.~%"))))))))
+
 (defun make-agent-init-command ()
   "Create the agent init command."
   (clingon:make-command
    :name "init"
    :description "Create an agent with a board for work and a credential shape, store the identity"
-   :handler (lambda (cmd)
-              (with-cli-db
-                (let* ((name (clingon:getopt cmd :name))
-                       (owner (clingon:getopt cmd :owner))
-                       (description (clingon:getopt cmd :description))
-                       (board-name (clingon:getopt cmd :board))
-                       (type (clingon:getopt cmd :type)))
-                  (if (null owner)
-                      (format t "Specify --owner~%")
-                      (let* ((config (cli-site-config "default"))
-                             (agent-id (getf config :agent-id))
-                             (bearer (getf config :bearer))
-                             (server-public (getf config :server-public))
-                             (agent-private (getf config :agent-private))
-                             (board-id (getf config :board-id)))
-                        (unless (and agent-id (get-agent-by-id agent-id))
-                          (setf agent-id
-                                (create-agent owner (or name "CLI Agent") :description description))
-                          (format t "Created agent ~a~%" agent-id))
-                        (unless bearer
-                          (multiple-value-bind (shape-id new-bearer new-server-public new-agent-private)
-                              (create-agent-shape agent-id (or name "cli"))
-                            (declare (ignore shape-id))
-                            (setf bearer new-bearer
-                                  server-public new-server-public
-                                  agent-private new-agent-private)
-                            (print-agent-shape-secrets agent-id bearer server-public agent-private)))
-                        (unless (and board-id (get-board-by-id board-id))
-                          (when board-name
-                            (setf board-id (create-board board-name (or type "common") owner))
-                            (ensure-board-member board-id "agent" agent-id)
-                            (format t "Created board ~a: ~a~%" board-id board-name)))
-                        (write-cli-config (list :agent-id agent-id
-                                                :bearer bearer
-                                                :server-public server-public
-                                                :agent-private agent-private
-                                                :board-id board-id))
-                        (format t "Agent identity stored. Run 'focus status' to review.~%"))))))
-   :options (list (clingon:make-option :integer
-                                        :long-name "owner"
-                                        :description "Owning user ID"
-                                        :key :owner
-                                        :required t)
-                  (clingon:make-option :string
-                                        :long-name "name"
-                                        :description "Agent name"
-                                        :key :name)
-                  (clingon:make-option :string
-                                        :long-name "description"
-                                        :description "Agent description"
-                                        :key :description)
-                  (clingon:make-option :string
-                                        :long-name "board"
-                                        :description "Name of a new board to create for work"
-                                        :key :board)
-                  (clingon:make-option :string
-                                        :long-name "type"
-                                        :description "Board type: common or personal"
-                                        :key :type
-                                        :initial-value "common"))))
+   :handler #'cli-agent-init-handler
+   :options (list (opt-int "owner" "Owning user ID" :owner :required t)
+                  (opt-string "name" "Agent name" :name)
+                  (opt-string "description" "Agent description" :description)
+                  (opt-string "board" "Name of a new board to create for work" :board)
+                  (opt-string "type" "Board type: common or personal" :type
+                              :initial-value "common"))))
 
 (defun make-agent-command ()
   "Create the agent command group."

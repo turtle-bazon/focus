@@ -396,48 +396,57 @@
                                         :key :agent-private
                                         :required t))))
 
+(defun remote-add-board-by-specs (site boards specs local-name)
+  "Add boards matching SPECS to SITE; returns T when something matched."
+  (let ((chosen (resolve-board-specs boards specs)))
+    (if chosen
+        (progn
+          (cli-set-site-board site (or local-name (caar chosen)) (caar chosen))
+          (format t "Added ~a -> ~a on site ~a.~%" (or local-name (caar chosen))
+                  (caar chosen) site)
+          t)
+        (progn
+          (format t "No remote boards matched: ~{~a~^, ~}~%" specs)
+          (format t "See available boards: focus-cli list-boards --site ~a~%" site)
+          nil))))
+
+(defun remote-add-board-interactively (site boards)
+  "Prompt for several boards and local aliases, then record them on SITE."
+  (let ((chosen (pick-boards boards)))
+    (when chosen
+      (iter (for (remote . id) in chosen)
+        (declare (ignore id))
+        (let ((local (prompt-local-name remote)))
+          (cli-set-site-board site local remote)))
+      (format t "Added ~a board~:p to site ~a.~%" (length chosen) site))))
+
+(defun remote-add-board-handler (cmd)
+  "Handler for the focus-cli add-board command."
+  (with-api-errors
+    (let ((site (clingon:getopt cmd :site)))
+      (with-cli-site (site)
+        (let ((boards (remote-list-boards))
+              (specs (clingon:getopt cmd :board)))
+          (if specs
+              (remote-add-board-by-specs site boards specs (clingon:getopt cmd :name))
+              (remote-add-board-interactively site boards)))))))
+
 (defun make-remote-add-board-command ()
   "Create the add-board command."
   (clingon:make-command
    :name "add-board"
    :description "Add boards to a site (interactively, or by --board/--name)"
-   :handler (lambda (cmd)
-              (with-api-errors
-                (let ((site (clingon:getopt cmd :site)))
-                  (with-cli-site (site)
-                    (let ((boards (remote-list-boards))
-                          (specs (clingon:getopt cmd :board)))
-                      (if specs
-                          (let ((chosen (resolve-board-specs boards specs)))
-                            (if chosen
-                                (let ((local (or (clingon:getopt cmd :name)
-                                                 (caar chosen))))
-                                  (cli-set-site-board site local (caar chosen))
-                                  (format t "Added ~a -> ~a on site ~a.~%"
-                                          local (caar chosen) site))
-                                (progn
-                                  (format t "No remote boards matched: ~{~a~^, ~}~%"
-                                          specs)
-                                  (format t "See available boards: focus-cli list-boards --site ~a~%"
-                                          site))))
-                          (let ((chosen (pick-boards boards)))
-                            (when chosen
-                              (iter (for (remote . id) in chosen)
-                                (declare (ignore id))
-                                (let ((local (prompt-local-name remote)))
-                                  (cli-set-site-board site local remote)))
-                              (format t "Added ~a board~:p to site ~a.~%"
-                                      (length chosen) site)))))))))
+   :handler #'remote-add-board-handler
    :options (list (make-site-option)
                   (clingon:make-option :list
-                                       :long-name "board"
-                                       :description "Remote board name to add (repeatable)"
-                                       :key :board
-                                       :parameter "NAME")
+                                        :long-name "board"
+                                        :description "Remote board name to add (repeatable)"
+                                        :key :board
+                                        :parameter "NAME")
                   (clingon:make-option :string
-                                       :long-name "name"
-                                       :description "Local alias (defaults to the board name)"
-                                       :key :name))))
+                                        :long-name "name"
+                                        :description "Local alias (defaults to the board name)"
+                                        :key :name))))
 
 (defun make-remote-list-sites-command ()
   "Create the list-sites command."
@@ -481,59 +490,53 @@
                               (getf board :type)))))))
    :options (list (make-site-option))))
 
+(defun remote-list-handler (cmd)
+  "Handler for the focus-cli list command."
+  (with-api-errors
+    (multiple-value-bind (board site) (cli-require-board-spec cmd)
+      (with-cli-site (site)
+        (let* ((status (clingon:getopt cmd :status))
+               (priority (clingon:getopt cmd :priority))
+               (assignee (clingon:getopt cmd :assignee))
+               (limit (clingon:getopt cmd :limit))
+               (page (clingon:getopt cmd :page))
+               (search (clingon:getopt cmd :search))
+               (json? (clingon:getopt cmd :json))
+               (board-id (cli-resolve-board-id site board)))
+          (cond (search
+                 (print-ticket-list-remote
+                  (getf (api-call :get "/api/tickets/search"
+                                  :query (build-query `(:q ,search)))
+                        :tickets)
+                  json?))
+                (board-id
+                 (print-ticket-list-remote
+                  (getf (api-call :get "/api/tickets"
+                                  :query (build-query `(:status ,status
+                                                         :priority ,priority
+                                                         :assignee-id ,assignee
+                                                         :board-id ,board-id
+                                                         :limit ,limit
+                                                         :page ,page)))
+                        :tickets)
+                  json?))
+                (t (format t "Board ~a not found on site ~a.~%" board site)
+                   (format t "See: focus-cli list-boards --site ~a~%" site))))))))
+
 (defun make-remote-list-command ()
   "Create the list command."
   (clingon:make-command
    :name "list"
    :description "List tickets in a board"
-   :handler (lambda (cmd)
-              (with-api-errors
-                (multiple-value-bind (board site) (cli-require-board-spec cmd)
-                  (with-cli-site (site)
-                    (let* ((status (clingon:getopt cmd :status))
-                           (priority (clingon:getopt cmd :priority))
-                           (assignee (clingon:getopt cmd :assignee))
-                           (limit (clingon:getopt cmd :limit))
-                           (page (clingon:getopt cmd :page))
-                           (search (clingon:getopt cmd :search))
-                           (json? (clingon:getopt cmd :json))
-                           (board-id (cli-resolve-board-id site board)))
-                      (cond (search
-                             (print-ticket-list-remote
-                              (getf (api-call :get "/api/tickets/search"
-                                              :query (build-query `(:q ,search)))
-                                    :tickets)
-                              json?))
-                            (board-id
-                             (print-ticket-list-remote
-                              (getf (api-call :get "/api/tickets"
-                                              :query (build-query `(:status ,status
-                                                                       :priority ,priority
-                                                                       :assignee-id ,assignee
-                                                                       :board-id ,board-id
-                                                                       :limit ,limit
-                                                                       :page ,page)))
-                                     :tickets)
-                              json?))
-                            (t (format t "Board ~a not found on site ~a.~%" board site)
-                               (format t "See: focus-cli list-boards --site ~a~%" site))))))))
+   :handler #'remote-list-handler
    :options (list (make-board-option)
-                  (clingon:make-option :string :long-name "status"
-                                       :description "Filter by status" :key :status)
-                  (clingon:make-option :string :long-name "priority"
-                                       :description "Filter by priority" :key :priority)
-                  (clingon:make-option :integer :long-name "assignee"
-                                       :description "Filter by assignee ID" :key :assignee)
-                  (clingon:make-option :integer :long-name "limit"
-                                       :description "Max tickets to show" :key :limit
-                                       :initial-value 20)
-                  (clingon:make-option :integer :long-name "page"
-                                       :description "Page number" :key :page
-                                       :initial-value 1)
-                  (clingon:make-option :string :long-name "search"
-                                       :description "Full-text search query" :key :search)
-                  (clingon:make-option :flag :long-name "json"
-                                       :description "Output as JSON" :key :json))))
+                  (opt-string "status" "Filter by status" :status)
+                  (opt-string "priority" "Filter by priority" :priority)
+                  (opt-int "assignee" "Filter by assignee ID" :assignee)
+                  (opt-int "limit" "Max tickets to show" :limit :initial-value 20)
+                  (opt-int "page" "Page number" :page :initial-value 1)
+                  (opt-string "search" "Full-text search query" :search)
+                  (opt-flag "json" "Output as JSON" :json))))
 
 (defun make-remote-show-command ()
   "Create the show command."

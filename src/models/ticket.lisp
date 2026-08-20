@@ -35,7 +35,7 @@
                1)
        RETURNING id"
      title
-     description
+     (sql-null-or description)
      status
      (or priority "medium")
      (or assignee-id 0)
@@ -112,50 +112,42 @@
                    (reverse params))))
         (or (getf (car rows) :total) 0)))))
 
+(defun run-dynamic-update (table assignments id &key (extra ""))
+  "Run UPDATE TABLE SET col = $1, ... WHERE id = $n for ASSIGNMENTS, an alist
+   of (column-name . value) pairs; only non-nil values are assigned. ID is
+   bound as the last parameter; EXTRA is appended verbatim after the SET list
+   (e.g. \", updated_at = NOW()\"). Returns the query rows."
+  (when assignments
+    (let* ((count (length assignments))
+           (sets (iter (for i from 1 to count)
+                       (for (col . nil) in assignments)
+                       (collecting (format nil "~a = $~d" col i))))
+           (params (append (mapcar #'cdr assignments) (list id))))
+      (pg-query-params
+       (format nil "UPDATE ~a SET ~{~a~^, ~}~a WHERE id = $~d"
+               table sets extra (1+ count))
+       params))))
+
+(defun ticket-update-assignments (title description status priority assignee-id assignee-type color board-id)
+  "Alist of supplied ticket columns for a partial update."
+  (remove-if (lambda (pair) (null (cdr pair)))
+             (list (cons "title" title)
+                   (cons "description" description)
+                   (cons "status" status)
+                   (cons "priority" priority)
+                   (cons "assignee_id" assignee-id)
+                   (cons "assignee_type" assignee-type)
+                   (cons "color" color)
+                   (cons "board_id" board-id))))
+
 (defun update-ticket (id &key title description status priority assignee-id assignee-type color board-id)
   "Update ticket fields. Returns the updated ticket."
-  (let ((sets '())
-        (params '())
-        (i 0))
-    (when title
-      (incf i)
-      (push (format nil "title = $~d" i) sets)
-      (push title params))
-    (when description
-      (incf i)
-      (push (format nil "description = $~d" i) sets)
-      (push description params))
-    (when status
-      (incf i)
-      (push (format nil "status = $~d" i) sets)
-      (push status params))
-    (when priority
-      (incf i)
-      (push (format nil "priority = $~d" i) sets)
-      (push priority params))
-    (when assignee-id
-      (incf i)
-      (push (format nil "assignee_id = $~d" i) sets)
-      (push assignee-id params))
-    (when assignee-type
-      (incf i)
-      (push (format nil "assignee_type = $~d" i) sets)
-      (push assignee-type params))
-    (when color
-      (incf i)
-      (push (format nil "color = $~d" i) sets)
-      (push color params))
-    (when board-id
-      (incf i)
-      (push (format nil "board_id = $~d" i) sets)
-      (push board-id params))
-    (when sets
-      (incf i)
-      (push id params)
-      (pg-query-params
-       (format nil "UPDATE tickets SET ~{~a~^, ~}, updated_at = NOW() WHERE id = $~d"
-               (reverse sets) i)
-       (reverse params))))
+  (run-dynamic-update
+   "tickets"
+   (ticket-update-assignments title description status priority
+                              assignee-id assignee-type color board-id)
+   id
+   :extra ", updated_at = NOW()")
   (get-ticket-by-id id))
 
 (defconstant +compression-threshold+ 1000
@@ -169,59 +161,59 @@
          "UPDATE tickets SET position_num = $1, position_den = 1 WHERE id = $2"
          idx ticket-id)))
 
+(defun group-neighbors (board-id status priority exclude-id)
+  "Tickets in the group ordered by fractional position, excluding EXCLUDE-ID."
+  (pg-query-params
+   "SELECT id, position_num, position_den
+    FROM tickets WHERE status = $1 AND priority = $2 AND id != $3 AND board_id = $4
+    ORDER BY (position_num::float / position_den) ASC, created_at DESC"
+   (list status priority exclude-id board-id)))
+
+(defun neighbor-position (before after)
+  "Compute the fractional position (values num den) between the BEFORE and
+   AFTER neighbor plists (either may be nil). The mediant of a/b and c/d lies
+   strictly between them; sentinels handle a missing neighbor."
+  (cond
+    ((and before after)
+     (values (+ (getf before :position_num) (getf after :position_num))
+             (+ (getf before :position_den) (getf after :position_den))))
+    (before
+     (values (+ (getf before :position_num) (getf before :position_den))
+             (getf before :position_den)))
+    (after
+     (values (getf after :position_num) (1+ (getf after :position_den))))
+    (t (values 0 1))))
+
+(defun compress-group-if-needed (new-den board-id status priority)
+  "Reassign contiguous positions when denominators grow too large."
+  (when (> new-den +compression-threshold+)
+    (let ((all-ids (mapcar (lambda (plist) (getf plist :id))
+                           (pg-query-params
+                            "SELECT id FROM tickets WHERE status = $1 AND priority = $2 AND board_id = $3
+                             ORDER BY (position_num::float / position_den) ASC, created_at DESC"
+                            (list status priority board-id)))))
+      (compress-positions all-ids))))
+
 (defun reposition-ticket (id new-status new-priority new-position)
   "Move a ticket using fractional indexing. Only updates the moved ticket.
    Compresses the group when denominators grow too large."
-  (let ((board-id (getf (get-ticket-by-id id) :board-id)))
-    ;; Step 1: move ticket to target group
-    (db-execute
-     "UPDATE tickets SET status = $1, priority = $2, updated_at = NOW() WHERE id = $3"
-     new-status new-priority id)
-    ;; Step 2: get neighbors in the group (ordered)
-    (let ((neighbors (pg-query-params
-                      "SELECT id, position_num, position_den
-                       FROM tickets WHERE status = $1 AND priority = $2 AND id != $3 AND board_id = $4
-                       ORDER BY (position_num::float / position_den) ASC, created_at DESC"
-                      (list new-status new-priority id board-id)))
-        (pos (max 0 (min new-position 10000))))
-    ;; Step 3: find neighbors at target position
-    (let ((before (when (and (plusp pos) (>= (length neighbors) pos))
-                    (elt neighbors (1- pos))))
-          (after (when (< pos (length neighbors))
-                   (elt neighbors pos))))
-      ;; Step 4: compute mediant position
-      ;; Mediant of a/b and c/d is (a+c)/(b+d), always between the two fractions.
-      ;; "before first": mediant of sentinel 0/1 and after → after-num/(after-den+1)
-      ;; "after last": before-num/before-den + 1 → (before-num+before-den)/before-den
-      (let ((new-num (cond
-                       ((and before after)
-                        (+ (getf before :position_num) (getf after :position_num)))
-                       (before
-                        (+ (getf before :position_num)
-                           (getf before :position_den)))
-                       (after
-                        (getf after :position_num))
-                       (t 0)))
-            (new-den (cond
-                       ((and before after)
-                        (+ (getf before :position_den) (getf after :position_den)))
-                       (before
-                        (getf before :position_den))
-                       (after
-                        (1+ (getf after :position_den)))
-                       (t 1))))
-        ;; Step 5: assign position
-        (db-execute
-         "UPDATE tickets SET position_num = $1, position_den = $2, updated_at = NOW() WHERE id = $3"
-         new-num new-den id)
-        ;; Step 6: compress if denominator too large
-        (when (> new-den +compression-threshold+)
-          (let ((all-ids (mapcar (lambda (plist) (getf plist :id))
-                                 (pg-query-params
-                                  "SELECT id FROM tickets WHERE status = $1 AND priority = $2 AND board_id = $3
-                                   ORDER BY (position_num::float / position_den) ASC, created_at DESC"
-                                  (list new-status new-priority board-id)))))
-            (compress-positions all-ids)))))))
+  (let* ((board-id (getf (get-ticket-by-id id) :board-id))
+         (pos (max 0 (min new-position 10000)))
+         ;; Move ticket to target group, then find its neighbors there.
+         (neighbors (progn
+                      (db-execute
+                       "UPDATE tickets SET status = $1, priority = $2, updated_at = NOW() WHERE id = $3"
+                       new-status new-priority id)
+                      (group-neighbors board-id new-status new-priority id)))
+         (before (when (and (plusp pos) (>= (length neighbors) pos))
+                   (elt neighbors (1- pos))))
+         (after (when (< pos (length neighbors))
+                  (elt neighbors pos))))
+    (multiple-value-bind (new-num new-den) (neighbor-position before after)
+      (db-execute
+       "UPDATE tickets SET position_num = $1, position_den = $2, updated_at = NOW() WHERE id = $3"
+       new-num new-den id)
+      (compress-group-if-needed new-den board-id new-status new-priority)))
   (get-ticket-by-id id))
 
 (defun delete-ticket (id)

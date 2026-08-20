@@ -4,6 +4,8 @@
 
 ```bash
 make build          # Build binaries: build/focus and build/focus-cli
+make focus          # Build build/focus only
+make focus-cli      # Build build/focus-cli only
 make dev-start      # Run in background (nohup ./build/focus)
 make dev-stop       # Stop background process
 make clean          # Remove build/
@@ -12,11 +14,12 @@ make generate-migrations  # Regenerate src/migrations.lisp from migrations/
 make generate-static      # Regenerate src/static-assets.lisp from build/static/
 ```
 
-`build` runs `clean prepare frontend generate-static` then invokes
-`sbcl --non-interactive --load build.lisp`, which quickloads `:focus` and
-calls `(asdf:make "focus")` followed by `(asdf:make "focus-cli")`. Each
-system's `program-op` (`:build-operation`, `:build-pathname`, `:entry-point`)
-produces an executable: `build/focus` (web server + local CLI) and
+`build` runs `clean focus focus-cli`. `focus` depends on `generate-static`
+(which pulls in `frontend` → `prepare`), so the web server binary embeds fresh
+static assets; `focus-cli` is built standalone with no frontend dependency.
+Each binary is produced in its own SBCL process, so the `program-op`
+(`:build-operation`, `:build-pathname`, `:entry-point`) image dump for one
+can't abort the other: `build/focus` (web server + local CLI) and
 `build/focus-cli` (remote REST client). `BUILD_SUFFIX` is honored for the
 `focus` output name.
 

@@ -10,7 +10,6 @@ focus/
 ├── focus.asd               # Main ASDF system
 ├── focus-cli.asd           # Remote CLI (focus-cli) ASDF system
 ├── focus-tests.asd         # Test ASDF system
-├── build.lisp              # Binary build script (build/focus + build/focus-cli)
 ├── migrations/             # SQL migrations (0001..0021)
 ├── src/
 │   ├── package.lisp        # Package definition + exports

@@ -1,9 +1,19 @@
 all: build
 
-.PHONY: all build clean prepare frontend dev-start dev-stop tests generate-migrations generate-static
+.PHONY: all build clean prepare frontend dev-start dev-stop tests generate-migrations generate-static focus focus-cli
 
-build: clean prepare frontend generate-static
-	BUILD_SUFFIX=$(BUILD_SUFFIX) sbcl --non-interactive --load build.lisp
+SBCL_OPTS = sbcl --noinform --non-interactive
+
+focus: generate-static
+	$(SBCL_OPTS) \
+	  --eval '(push :binary *features*)' \
+	  --eval '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' \
+	  --eval '(ql:quickload :focus :silent t)' \
+	  --eval '(ensure-directories-exist "build")' \
+	  --eval '(asdf:make "focus")'
+	@if [ -n "$(BUILD_SUFFIX)" ]; then mv build/focus build/focus$(BUILD_SUFFIX); fi
+
+build: clean focus focus-cli
 
 clean:
 	rm -rf build
@@ -22,6 +32,14 @@ frontend: prepare
 
 generate-static: frontend
 	sbcl --load tools/build-static.lisp
+
+focus-cli:
+	$(SBCL_OPTS) \
+	  --eval '(push :binary *features*)' \
+	  --eval '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' \
+	  --eval '(ql:quickload :focus :silent t)' \
+	  --eval '(ensure-directories-exist "build")' \
+	  --eval '(asdf:make "focus-cli")'
 
 dev-start:
 	nohup ./build/focus > /tmp/focus.log 2>&1 &

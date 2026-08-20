@@ -49,9 +49,12 @@ starts the web server; subcommands run against the PostgreSQL database on
 the server host. `--rebuild-db` drops and re-creates the schema.
 
 ```bash
-focus list   [--status open] [--priority high]
-focus create --title "Bug report" --description "Details..."
-focus update <id> --status closed --priority low
+focus list   [--status open] [--priority high] [--board ID]
+focus create --title "Bug report" [--description "Details..."] \
+             [--status open] [--priority medium] [--assignee ID] [--color "#e74c3c"]
+             [--board ID]
+focus update <id> [--title ...] [--description ...] [--status closed]
+                   [--priority low] [--assignee ID] [--color ...]
 focus delete <id>
 ```
 
@@ -68,7 +71,9 @@ focus-cli list-sites                            # sites + board aliases
 focus-cli list-boards --site work               # aliases + server boards
 focus-cli list --board work/helpdesk [--status open]  # site + board in one
 focus-cli list --board hd [--status open]       # by local alias
-focus-cli create --title "Deploy" --board work/helpdesk
+focus-cli create --title "Deploy" --board work/helpdesk \
+                 [--description "Details"] [--priority high] [--status open] \
+                 [--assignee ID] [--color "#e74c3c"]
 focus-cli show 1 --site work                    # explicit site
 focus-cli comment add 1 --site work --body "Looking into it"
 ```

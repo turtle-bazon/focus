@@ -47,23 +47,91 @@
   (merge-pathnames #P".focus-cli" (user-homedir-pathname)))
 
 (defun read-cli-config ()
-  "Read the CLI identity config plist, or NIL."
+  "Read the CLI config, or NIL. Returns (:sites ((NAME . PLIST) ...)).
+  A legacy bare-plist file, or an old (:current ...) file, is normalized."
   (when (probe-file +focus-cli-config-path+)
     (handler-case
-        (with-open-file (stream +focus-cli-config-path+)
-          (read stream nil))
+        (let ((data (with-open-file (stream +focus-cli-config-path+)
+                      (read stream nil))))
+          (cond ((and (consp data) (eq (car data) :sites)) data)
+                ((and (consp data) (eq (car data) :current))
+                 (list :sites (getf data :sites)))
+                (t (list :sites (list (cons "default" data))))))
       (error () nil))))
 
-(defun write-cli-config (config)
-  "Persist the CLI identity CONFIG plist."
+(defun cli-site-config (site)
+  "The plist of the named SITE, or NIL."
+  (cdr (assoc site (getf (read-cli-config) :sites) :test #'string=)))
+
+(defun write-cli-config-file (config)
+  "Persist the full CONFIG structure."
   (with-open-file (stream +focus-cli-config-path+
                           :direction :output :if-exists :supersede)
-    (prin1 config stream))
+    (prin1 config stream)))
+
+(defun store-site-config (config site)
+  "Persist CONFIG merged over SITE's current values, keeping other sites.
+  Returns the merged plist."
+  (let* ((loaded (read-cli-config))
+         (sites (getf loaded :sites))
+         (others (remove site sites :key #'car :test #'string=))
+         (merged (append config (cli-site-config site))))
+    (write-cli-config-file
+     (list :sites (cons (cons site merged) others)))
+    merged))
+
+(defun write-cli-config (config &optional (site "default"))
+  "Persist CONFIG into SITE (merged over existing keys), keeping other sites."
+  (store-site-config config site)
   (format t "Saved agent identity to ~a~%" +focus-cli-config-path+))
 
+(defun cli-site-names ()
+  "Names of all configured sites."
+  (iter (for site in (getf (read-cli-config) :sites))
+    (collecting (car site))))
+
+(defun split-board-spec (spec)
+  "Split a SITE/BOARD spec into (values BOARD SITE); SITE is NIL when absent."
+  (let ((slash (position #\/ spec :from-end t)))
+    (if slash
+        (values (subseq spec (1+ slash))
+                (subseq spec 0 slash))
+        (values spec nil))))
+
+(defun cli-site-boards (site)
+  "Alist of stored (local-name . remote-name) board aliases for SITE."
+  (getf (cli-site-config site) :boards))
+
+(defun cli-local-board-remote (site local)
+  "The remote board name that LOCAL aliases in SITE, or NIL."
+  (cdr (assoc local (cli-site-boards site) :test #'string-equal)))
+
+(defun cli-set-site-board (site local remote)
+  "Record LOCAL -> REMOTE board alias in SITE, deduplicated by local name.
+  Silent."
+  (let* ((current (cli-site-boards site))
+         (boards (remove local current :key #'car :test #'string-equal)))
+    (store-site-config (list :boards (cons (cons local remote) boards)) site)))
+
+(defun cli-add-site (name url key &optional agent)
+  "Add or update SITE with its server URL and API KEY, keeping existing boards."
+  (let* ((old (cli-site-config name))
+         (sites (remove name (getf (read-cli-config) :sites)
+                        :key #'car :test #'string=)))
+    (write-cli-config-file
+     (list :sites
+           (cons (cons name
+                       (list :server-url url
+                             :key key
+                             :agent-id agent
+                             :boards (getf old :boards)))
+                 sites)))
+    (format t "Added site ~a. Add boards: focus-cli add-board --site ~a~%"
+            name name)))
+
 (defun cli-config-get (key)
-  "Look up KEY in the stored CLI identity config."
-  (getf (read-cli-config) key))
+  "Look up KEY in the default site's config (used by the local 'focus' CLI)."
+  (getf (cli-site-config "default") key))
 
 (defun cli-default-agent-id ()
   "The stored agent ID, or NIL."
@@ -622,12 +690,12 @@
                          (format t "Agent ~a not found~%" agent))
                         ((and board (null (get-board-by-id board)))
                          (format t "Board ~a not found~%" board))
-                        (t
-                         (let ((config (read-cli-config)))
-                           (write-cli-config (list :agent-id agent
-                                                   :key (or key (getf config :key))
-                                                   :board-id (or board (getf config :board-id))))
-                           (format t "Agent identity updated. Run 'focus status' to review.~%")))))))
+                         (t
+(let ((config (cli-site-config "default")))
+                             (write-cli-config (list :agent-id agent
+                                                     :key (or key (getf config :key))
+                                                     :board-id (or board (getf config :board-id))))
+                            (format t "Agent identity updated. Run 'focus status' to review.~%")))))))
    :options (list (clingon:make-option :integer
                                        :long-name "agent"
                                        :description "Agent ID to use"
@@ -656,7 +724,7 @@
                        (type (clingon:getopt cmd :type)))
                   (if (null owner)
                       (format t "Specify --owner~%")
-                      (let* ((config (read-cli-config))
+                      (let* ((config (cli-site-config "default"))
                              (agent-id (getf config :agent-id))
                              (key (getf config :key))
                              (board-id (getf config :board-id)))
@@ -890,19 +958,19 @@
    :description "Show the stored agent identity"
    :handler (lambda (cmd)
               (declare (ignore cmd))
-              (with-cli-db
-                (let ((config (read-cli-config)))
-                  (if config
-                      (let ((agent (when (getf config :agent-id)
-                                     (get-agent-by-id (getf config :agent-id))))
-                            (board (when (getf config :board-id)
-                                     (get-board-by-id (getf config :board-id)))))
-                        (format t "Agent: ~a~@[ (~a)~]~%"
-                                (getf config :agent-id) (getf agent :name))
-                        (format t "Board: ~a~@[ (~a)~]~%"
-                                (getf config :board-id) (getf board :name))
-                        (format t "Key:   ~a~%" (mask-key (getf config :key))))
-                      (format t "No agent identity configured. Run 'focus agent init' or 'focus agent use'.~%")))))
+               (with-cli-db
+                 (let ((config (cli-site-config "default")))
+                   (if config
+                       (let ((agent (when (getf config :agent-id)
+                                      (get-agent-by-id (getf config :agent-id))))
+                             (board (when (getf config :board-id)
+                                      (get-board-by-id (getf config :board-id)))))
+                         (format t "Agent: ~a~@[ (~a)~]~%"
+                                 (getf config :agent-id) (getf agent :name))
+                         (format t "Board: ~a~@[ (~a)~]~%"
+                                 (getf config :board-id) (getf board :name))
+                         (format t "Key:   ~a~%" (mask-key (getf config :key))))
+                       (format t "No agent identity configured. Run 'focus agent init' or 'focus agent use'.~%")))))
    :options nil))
 
 (defun make-root-command ()

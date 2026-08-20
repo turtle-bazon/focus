@@ -51,12 +51,16 @@
 (test remote-command-builds
   (let ((cmd (focus::make-remote-root-command)))
     (is (string= (clingon:command-name cmd) "focus-cli"))
-    (is (= 10 (length (clingon:command-sub-commands cmd))))
-    (dolist (name '("configure" "status" "list" "show" "create"
-                    "update" "delete" "comment" "label" "board"))
+    (is (= 11 (length (clingon:command-sub-commands cmd))))
+    (dolist (name '("add-site" "add-board" "list-sites" "list-boards" "list"
+                    "show" "create" "update" "delete" "comment" "label"))
       (is (find-if (lambda (sub) (string= name (clingon:command-name sub)))
                    (clingon:command-sub-commands cmd))
-          "focus-cli should have ~a subcommand" name))))
+          "focus-cli should have ~a subcommand" name))
+    (is (null (find-if (lambda (sub) (string= "configure" (clingon:command-name sub)))
+                       (clingon:command-sub-commands cmd))))
+    (is (null (find-if (lambda (sub) (string= "status" (clingon:command-name sub)))
+                       (clingon:command-sub-commands cmd))))))
 
 (test remote-json-decoder-normalizes-keys
   (let* ((decoded (focus::json->
@@ -66,3 +70,94 @@
       (is (= 1 (getf ticket :id)))
       (is (= 5 (getf ticket :assignee-id)))
       (is (eq t (getf ticket :is-default))))))
+
+(defun with-test-config (config thunk)
+  "Run THUNK with the CLI config path pointed at a temp copy of CONFIG."
+  (let ((focus::+focus-cli-config-path+
+          (merge-pathnames #P".focus-cli-test" (user-homedir-pathname))))
+    (focus::write-cli-config-file config)
+    (unwind-protect (funcall thunk)
+      (when (probe-file focus::+focus-cli-config-path+)
+        (delete-file focus::+focus-cli-config-path+)))))
+
+(test legacy-config-wraps-as-default-site
+  (with-test-config '(:server-url "http://x:8080" :key "focus1-abc" :board-id 3)
+    (lambda ()
+      (let ((loaded (focus::read-cli-config)))
+        (is (= 1 (length (getf loaded :sites))))
+        (is (string= "default" (caar (getf loaded :sites))))
+        (is (string= "http://x:8080"
+                     (getf (cdar (getf loaded :sites)) :server-url)))))))
+
+(test current-format-normalizes-to-sites
+  (with-test-config '(:current "work"
+                      :sites (("home" :server-url "http://h:8080" :key "focus1-a" :board-id 1)
+                              ("work" :server-url "http://w:8080" :key "focus2-b" :board-id 2)))
+    (lambda ()
+      (let ((loaded (focus::read-cli-config)))
+        (is (null (getf loaded :current)))
+        (is (= 2 (length (getf loaded :sites))))
+        (is (string= "http://w:8080"
+                     (getf (focus::cli-site-config "work") :server-url)))))))
+
+(test multi-site-config-reads-sites
+  (with-test-config '(:sites (("home" :server-url "http://h:8080" :key "focus1-a" :board-id 1)
+                              ("work" :server-url "http://w:8080" :key "focus2-b" :board-id 2)))
+    (lambda ()
+      (is (equal '("home" "work") (focus::cli-site-names)))
+      (is (string= "http://h:8080"
+                   (getf (focus::cli-site-config "home") :server-url)))
+      (is (= 2 (getf (focus::cli-site-config "work") :board-id))))))
+
+(test add-site-stores-server-key-and-preserves-boards
+  (with-test-config '(:sites (("work" :server-url "http://w:8080" :key "focus2-b"
+                                        :boards (("hd" . "Helpdesk")))))
+    (lambda ()
+      (focus::cli-add-site "work" "http://new:8080" "focus3-c")
+      (is (string= "http://new:8080"
+                   (getf (focus::cli-site-config "work") :server-url)))
+      (is (string= "focus3-c" (getf (focus::cli-site-config "work") :key)))
+      (is (string= "Helpdesk" (focus::cli-local-board-remote "work" "hd"))))))
+
+(test board-alias-maps-local-to-remote
+  (with-test-config '(:sites (("work" :server-url "http://w:8080" :key "focus2-b")))
+    (lambda ()
+      (focus::cli-set-site-board "work" "hd" "Helpdesk")
+      (is (string= "Helpdesk" (focus::cli-local-board-remote "work" "hd")))
+      (focus::cli-set-site-board "work" "hd" "Queue")
+      (is (= 1 (length (focus::cli-site-boards "work"))))
+      (is (string= "Queue" (focus::cli-local-board-remote "work" "hd"))))))
+
+(test site-scoped-commands-take-site-option
+  (dolist (sub (clingon:command-sub-commands (focus::make-remote-root-command)))
+    (when (member (clingon:command-name sub)
+                  '("show" "update" "delete" "add-board" "list-boards")
+                  :test #'string=)
+      (is (find-if (lambda (opt) (eq (clingon:option-key opt) :site))
+                   (clingon:command-options sub))
+          "~a should take --site" (clingon:command-name sub)))))
+
+(test board-spec-splits-site-and-board
+  (multiple-value-bind (board site) (focus::split-board-spec "work/helpdesk")
+    (is (string= "helpdesk" board))
+    (is (string= "work" site)))
+  (multiple-value-bind (board site) (focus::split-board-spec "helpdesk")
+    (is (string= "helpdesk" board))
+    (is (null site)))
+  (multiple-value-bind (board site) (focus::split-board-spec "7")
+    (is (string= "7" board))
+    (is (null site))))
+
+(test remote-commands-take-board-env
+  (dolist (name '("list" "create"))
+    (let* ((root (focus::make-remote-root-command))
+           (sub (find-if (lambda (c) (string= name (clingon:command-name c)))
+                         (clingon:command-sub-commands root)))
+           (opt (find-if (lambda (o) (eq (clingon:option-key o) :board))
+                         (clingon:command-options sub))))
+      (is-true opt "~a should have a --board option" name)
+      (is (member "FOCUS_BOARD" (clingon:option-env-vars opt) :test #'string=)))))
+
+(test split-words-splits-on-spaces-and-commas
+  (is (equal '("2" "4") (focus::split-words "2 4")))
+  (is (equal '("Deploy" "Work" "7") (focus::split-words "Deploy, Work 7"))))

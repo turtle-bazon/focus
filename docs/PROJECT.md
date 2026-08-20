@@ -122,36 +122,55 @@ has **no database access**, and runs from any machine. Its config lives in
 or manually:
 
 ```bash
-focus-cli configure --server http://host:8080 --key "focusN-..." \
-                    [--agent ID] [--board ID]
-focus-cli status                 # review stored server/agent/board/key
+focus-cli add-site --name work --url http://host:8080 --key "focusN-..." \
+                   [--agent ID]                       # server URL + key
+focus-cli add-board --site work --board Helpdesk      # one board by name
+focus-cli add-board --site work --name hd --board Helpdesk  # local alias
+focus-cli add-board --site work                       # interactive picker
+focus-cli list-sites                                  # sites + board aliases
+focus-cli list-boards --site work                     # aliases + server boards
 
-focus-cli list [--status open] [--priority high] [--assignee ID] [--board ID]
-               [--limit N] [--page N] [--search QUERY] [--json]
-focus-cli show 123 [--json]
-
+focus-cli list --board work/helpdesk [--status open] [--priority high]
+               [--assignee ID] [--limit N] [--page N] [--search QUERY] [--json]
 focus-cli create --title "Bug report" --description "Details..." \
-                 [--priority high] [--status open] [--board ID] [--assignee ID]
-                 [--color "#e74c3c"]
-focus-cli update 123 [--title ...] [--description ...] [--status closed]
-                     [--priority low] [--assignee ID] [--color ...]
-focus-cli delete 123
+                 --board work/helpdesk [--priority high] [--status open]
+                 [--assignee ID] [--color "#e74c3c"]
+focus-cli show 1 --site work [--json]
+focus-cli update 1 --site work [--title ...] [--description ...] [--status closed]
+                   [--priority low] [--assignee ID] [--color ...]
+focus-cli delete 1 --site work
 
-focus-cli comment add 123 --body "Looking into it"
-focus-cli comment list 123
-focus-cli comment delete 123 456
+focus-cli comment add 1 --site work --body "Looking into it"
+focus-cli comment list 1 --site work
+focus-cli comment delete 1 2 --site work
 
-focus-cli label list
-focus-cli label add 123 2
-focus-cli label remove 123 2
-
-focus-cli board list
+focus-cli label list --site work
+focus-cli label add 1 2 --site work
+focus-cli label remove 1 2 --site work
 ```
 
-`list`/`create` default to the board stored in `~/.focus-cli`; `comment add`
-acts as the stored agent. Unlike `focus`, the remote CLI supports only ticket,
-comment, label, and board operations — agent management stays on the server
-host with `focus agent ...`.
+`~/.focus-cli` holds several named **sites** — each a server URL + agent API
+key (the key is per site) + any number of **board aliases** from that server.
+`add-site --name NAME --url URL --key KEY` adds or updates a site; there is
+no single "active site". The server URL is what separates sites — boards
+named the same on different servers don't collide.
+
+`add-board --site NAME` fetches the boards the agent can see and prompts you
+to pick several interactively (numbers/names, space or comma separated, empty
+for all), asking for a local alias per board (defaults to the remote name).
+Pass `--board REMOTE-NAME` to add one deterministically, optionally with a
+local alias via `--name`. `list-sites` shows every site with its board aliases;
+`list-boards --site NAME` shows the aliases plus every board the agent can see
+on that server.
+
+Every API command names its server and board explicitly, never implicitly:
+`list`/`create` take a mandatory `--board SITE/BOARD` (a local alias, the
+remote name, or a numeric id — everything resolves against that site's server);
+all other commands take a mandatory `--site NAME`. `FOCUS_BOARD` supplies the
+board for `list`/`create`, and `FOCUS_SITE` supplies the site for the rest.
+`comment add` acts as the stored agent. Unlike `focus`, the remote CLI
+supports only ticket, comment, label, and board operations — agent management
+stays on the server host with `focus agent ...`.
 
 ## Docs Index
 

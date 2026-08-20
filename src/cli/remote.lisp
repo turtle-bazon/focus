@@ -70,50 +70,143 @@
     (unless (null parts)
       (format nil "~{~a~^&~}" (nreverse parts)))))
 
-(defun api-call (method path &key query body)
-  "Call the API at the configured server. Returns decoded plist(s) or errors."
-  (let* ((server (cli-config-get :server-url))
-         (key (cli-config-get :key))
-         (url (format nil "~a~a~@[?~a~]" server path query)))
-    (unless server
-      (error 'api-error :message (format nil "No server configured. Run: focus-cli configure --server URL~%")))
-    (unless key
-      (error 'api-error :message (format nil "No API key configured. Run: focus-cli configure --key KEY~%")))
-    (handler-case
-        (progn
+(defun decode-json-text (text)
+  "Decode TEXT as JSON into plists, or return NIL."
+  (when (and text (plusp (length text)))
+    (json-> (cl-json:decode-json-from-string text))))
+
+(defun http-error-message (e)
+  "Extract a readable message from a dexador HTTP failure E."
+  (let* ((body (response-body e))
+         (decoded (when (and body (plusp (length body)))
+                    (handler-case (decode-json-text body) (error () nil)))))
+    (or (getf decoded :error)
+        (and body (plusp (length body)) body)
+        (when (response-status e) (format nil "HTTP ~a" (response-status e)))
+        (princ-to-string e))))
+
+(defvar *focus-cli-server* nil
+  "Bound to the active site's server URL by WITH-CLI-SITE.")
+
+(defvar *focus-cli-key* nil
+  "Bound to the active site's API key by WITH-CLI-SITE.")
+
+(defun api-call (method path &key query body (server *focus-cli-server*)
+                                   (key *focus-cli-key*))
+  "Call the API. Returns decoded plist(s) or signals api-error. SERVER and KEY
+  fall back to the site bound by WITH-CLI-SITE."
+  (unless server
+    (error 'api-error :message
+           "No server. Run: focus-cli add-site --name NAME --url URL --key KEY"))
+  (unless key
+    (error 'api-error :message
+           "No API key. Run: focus-cli add-site --name NAME --url URL --key KEY"))
+  (let ((url (format nil "~a~a~@[?~a~]" server path query)))
+      (handler-case
           (multiple-value-bind (resp status)
               (dexador:request url :method method :bearer-auth key
                                :content (when body
                                           (cl-json:encode-json-to-string (plist-to-json body)))
                                :want-stream t)
-            (let ((decoded (let ((text (read-all-stream resp)))
-                             (when (and text (plusp (length text)))
-                               (json-> (cl-json:decode-json-from-string text))))))
-              (if (<= 200 status 299)
-                  decoded
-                  (error 'api-error :message (or (getf decoded :error)
-                                                 (format nil "HTTP ~a" status)))))))
-      (api-error (e) (error e))
-      (dexador.error:http-request-failed (e)
-        (let* ((body (response-body e))
-               (msg (when (and body (plusp (length body)))
-                      (handler-case
-                          (let ((decoded (json-> (cl-json:decode-json-from-string body))))
-                            (or (getf decoded :error) body))
-                        (error () body)))))
-          (error 'api-error
-                 :message (or msg
-                              (when (response-status e)
-                                (format nil "HTTP ~a" (response-status e)))
-                              (princ-to-string e)))))
-      (error (e)
-        (error 'api-error :message (princ-to-string e))))))
+            (let ((decoded (decode-json-text (read-all-stream resp))))
+              (unless (<= 200 status 299)
+                (error 'api-error :message
+                       (or (getf decoded :error) (format nil "HTTP ~a" status))))
+              decoded))
+        (api-error (e) (error e))
+        (dexador.error:http-request-failed (e)
+          (error 'api-error :message (http-error-message e)))
+        (error (e)
+          (error 'api-error :message (princ-to-string e))))))
 
 (defmacro with-api-errors (&body body)
   "Run BODY, printing any api-error and continuing."
   `(handler-case (progn ,@body)
      (api-error (e)
        (format t "Error: ~a~%" (api-error-message e)))))
+
+(defmacro with-cli-site ((site) &body body)
+  "Run BODY with *focus-cli-server* and *focus-cli-key* bound from SITE's config.
+  SITE is a form evaluating to a site name."
+  `(let* ((site ,site)
+          (config (cli-site-config site)))
+     (unless config
+       (error 'api-error :message
+              (format nil "Site ~a not configured. Run: focus-cli add-site --name ~a --url URL --key KEY"
+                      site site)))
+     (let ((*focus-cli-server* (getf config :server-url))
+           (*focus-cli-key* (getf config :key)))
+       ,@body)))
+
+(defun make-site-option ()
+  "A required --site option shared by the site-scoped API commands."
+  (clingon:make-option :string
+                       :long-name "site"
+                       :description "Site name (required)"
+                       :key :site
+                       :required t
+                       :env-vars '("FOCUS_SITE")))
+
+(defun make-board-option ()
+  "A required --board SITE/BOARD option for the remote list and create commands."
+  (clingon:make-option :string
+                       :long-name "board"
+                       :description "Board as SITE/BOARD, e.g. work/helpdesk"
+                       :key :board
+                       :required t
+                       :env-vars '("FOCUS_BOARD")))
+
+(defun cli-require-board-spec (cmd)
+  "Parse the --board SPEC as SITE/BOARD; signals api-error unless both parts
+  exist. Returns (values BOARD SITE)."
+  (let ((spec (string-trim '(#\Space #\Tab) (or (clingon:getopt cmd :board) ""))))
+    (unless (position #\/ spec)
+      (error 'api-error :message
+             "Specify the board as SITE/BOARD, e.g. --board work/helpdesk"))
+    (split-board-spec spec)))
+
+(defun remote-list-boards ()
+  "Fetch the boards visible to the agent as plists."
+  (getf (api-call :get "/api/boards") :boards))
+
+(defun board-id-by-name (boards name)
+  "Find the board id in BOARDS whose name matches NAME (case-insensitive)."
+  (getf (find name boards
+              :key (lambda (board) (getf board :name))
+              :test #'string-equal)
+        :id))
+
+(defun resolve-board-specs (boards specs)
+  "Resolve each SPEC (numeric id or name) in SPECS against BOARDS plists.
+  Returns an alist of (board-name . board-id), skipping unknown boards."
+  (iter (for spec in specs)
+    (let* ((text (string-trim " " spec))
+           (id (ignore-errors (parse-integer text)))
+           (board (if id
+                      (find id boards :key (lambda (b) (getf b :id)) :test #'eql)
+                      (find text boards
+                            :key (lambda (b) (getf b :name))
+                            :test #'string-equal))))
+      (when board
+        (collecting (cons (getf board :name) (getf board :id)))))))
+
+(defun prompt-local-name (remote)
+  "Ask for a local alias for the remote board REMOTE; empty answer keeps REMOTE."
+  (format t "Local name for '~a' [~a]: " remote remote)
+  (finish-output)
+  (let ((line (read-line *standard-input* nil nil)))
+    (if (and line (plusp (length (string-trim '(#\Space #\Tab) line))))
+        (string-trim '(#\Space #\Tab) line)
+        remote)))
+
+(defun cli-resolve-board-id (site ref)
+  "Resolve REF to a board id in SITE: a numeric id, a stored local alias
+  (resolved to its remote name via the API), or a board's remote name.
+  Returns NIL when nothing resolves."
+  (let ((num (ignore-errors (parse-integer ref))))
+    (cond (num num)
+          (t (board-id-by-name (remote-list-boards)
+                               (or (cli-local-board-remote site ref) ref))))))
 
 (defun print-ticket-list-remote (tickets json?)
   "Print a list of ticket plists."
@@ -149,92 +242,205 @@
           (iter (for comment in comments)
             (format t "    [#~a] ~a~%" (getf comment :id) (getf comment :body)))))))
 
-(defun make-remote-configure-command ()
-  "Create the configure command."
+(defun split-words (text &optional (separators '(#\Space #\Tab #\,)))
+  "Split TEXT into trimmed non-empty words on SEPARATORS."
+  (let ((delimited (concatenate 'string text (string (car separators)))))
+    (iter (with start = 0)
+          (for i from 0 below (length delimited))
+          (when (member (char delimited i) separators)
+            (let ((word (string-trim separators (subseq delimited start i))))
+              (when (plusp (length word))
+                (collecting word)))
+            (setf start (1+ i))))))
+
+(defun pick-boards (boards)
+  "Prompt the user to choose one or more boards from BOARDS by number or name
+  (space/comma separated; empty answer selects all). Returns an alist of
+  (board-name . board-id)."
+  (iter (for board in boards)
+    (for n from 1)
+    (format t "~a. ~a (~a)~%" n (getf board :name) (getf board :type)))
+  (format t "Choose boards (numbers or names, space/comma separated; empty = all): ")
+  (finish-output)
+  (let ((line (read-line *standard-input* nil nil)))
+    (if (and line (plusp (length (string-trim '(#\Space #\Tab) line))))
+        (let ((texts (split-words line)))
+          (iter (for text in texts)
+            (let* ((clean (string-trim '(#\Space #\Tab) text))
+                   (n (parse-integer clean :junk-allowed t))
+                   (board (cond ((and n (<= 1 n (length boards)))
+                                 (nth (1- n) boards))
+                                ((plusp (length clean))
+                                 (find clean boards
+                                       :key (lambda (b) (getf b :name))
+                                       :test #'string-equal)))))
+              (when board
+                (collecting (cons (getf board :name) (getf board :id)))))))
+        (iter (for board in boards)
+          (collecting (cons (getf board :name) (getf board :id)))))))
+
+(defun make-remote-add-site-command ()
+  "Create the add-site command."
   (clingon:make-command
-   :name "configure"
-   :description "Store the server URL and agent API key in ~/.focus-cli"
+   :name "add-site"
+   :description "Add a site (server URL + API key) to ~/.focus-cli"
    :handler (lambda (cmd)
-              (let ((config (read-cli-config)))
-                (write-cli-config
-                 (list :server-url (or (clingon:getopt cmd :server) (getf config :server-url))
-                       :key (or (clingon:getopt cmd :key) (getf config :key))
-                       :agent-id (or (clingon:getopt cmd :agent) (getf config :agent-id))
-                       :board-id (or (clingon:getopt cmd :board) (getf config :board-id))))
-                (format t "Configured. Run 'focus-cli status' to review.~%")))
+              (with-api-errors
+                (let ((name (clingon:getopt cmd :name))
+                      (url (clingon:getopt cmd :url))
+                      (key (clingon:getopt cmd :key)))
+                  (if (and name url key)
+                      (progn
+                        (cli-add-site name url key (clingon:getopt cmd :agent)))
+                      (format t "Usage: focus-cli add-site --name NAME --url URL --key KEY~%")))))
    :options (list (clingon:make-option :string
-                                       :long-name "server"
+                                       :long-name "name"
+                                       :description "Site name"
+                                       :key :name
+                                       :required t)
+                  (clingon:make-option :string
+                                       :long-name "url"
                                        :description "Server base URL, e.g. http://host:8080"
-                                       :key :server)
+                                       :key :url
+                                       :required t)
                   (clingon:make-option :string
                                        :long-name "key"
                                        :description "Agent API key (focusN-...)"
-                                       :key :key)
+                                       :key :key
+                                       :required t)
                   (clingon:make-option :integer
                                        :long-name "agent"
                                        :description "Agent ID"
-                                       :key :agent)
-                  (clingon:make-option :integer
-                                       :long-name "board"
-                                       :description "Default board ID"
-                                       :key :board))))
+                                       :key :agent))))
 
-(defun make-remote-status-command ()
-  "Create the status command."
+(defun make-remote-add-board-command ()
+  "Create the add-board command."
   (clingon:make-command
-   :name "status"
-   :description "Show stored server, agent, board, and key"
+   :name "add-board"
+   :description "Add boards to a site (interactively, or by --board/--name)"
+   :handler (lambda (cmd)
+              (with-api-errors
+                (let ((site (clingon:getopt cmd :site)))
+                  (with-cli-site (site)
+                    (let ((boards (remote-list-boards))
+                          (specs (clingon:getopt cmd :board)))
+                      (if specs
+                          (let ((chosen (resolve-board-specs boards specs)))
+                            (if chosen
+                                (let ((local (or (clingon:getopt cmd :name)
+                                                 (caar chosen))))
+                                  (cli-set-site-board site local (caar chosen))
+                                  (format t "Added ~a -> ~a on site ~a.~%"
+                                          local (caar chosen) site))
+                                (progn
+                                  (format t "No remote boards matched: ~{~a~^, ~}~%"
+                                          specs)
+                                  (format t "See available boards: focus-cli list-boards --site ~a~%"
+                                          site))))
+                          (let ((chosen (pick-boards boards)))
+                            (when chosen
+                              (iter (for (remote . id) in chosen)
+                                (declare (ignore id))
+                                (let ((local (prompt-local-name remote)))
+                                  (cli-set-site-board site local remote)))
+                              (format t "Added ~a board~:p to site ~a.~%"
+                                      (length chosen) site)))))))))
+   :options (list (make-site-option)
+                  (clingon:make-option :list
+                                       :long-name "board"
+                                       :description "Remote board name to add (repeatable)"
+                                       :key :board
+                                       :parameter "NAME")
+                  (clingon:make-option :string
+                                       :long-name "name"
+                                       :description "Local alias (defaults to the board name)"
+                                       :key :name))))
+
+(defun make-remote-list-sites-command ()
+  "Create the list-sites command."
+  (clingon:make-command
+   :name "list-sites"
+   :description "List all configured sites and their board aliases"
    :handler (lambda (cmd)
               (declare (ignore cmd))
-              (let ((config (read-cli-config)))
-                (if config
-                    (progn
-                      (format t "Server: ~a~%" (or (getf config :server-url) "-"))
-                      (format t "Agent:  ~a~%" (or (getf config :agent-id) "-"))
-                      (format t "Board:  ~a~%" (or (getf config :board-id) "-"))
-                      (format t "Key:    ~a~%" (mask-key (getf config :key))))
-                    (format t "Not configured. Run: focus-cli configure --server URL --key KEY~%"))))
+              (let ((sites (getf (read-cli-config) :sites)))
+                (if sites
+                    (iter (for (name . site) in sites)
+                      (format t "~a  server=~a  key=~a~%"
+                              name
+                              (or (getf site :server-url) "-")
+                              (mask-key (getf site :key)))
+                      (iter (for (local . remote) in (getf site :boards))
+                        (format t "    ~a -> ~a~%" local remote)))
+                    (format t "No sites configured. Run: focus-cli add-site --name NAME --url URL --key KEY~%"))))
    :options nil))
+
+(defun make-remote-list-boards-command ()
+  "Create the list-boards command."
+  (clingon:make-command
+   :name "list-boards"
+   :description "List a site's boards: configured aliases and server boards"
+   :handler (lambda (cmd)
+              (with-api-errors
+                (let ((site (clingon:getopt cmd :site))
+                      (aliases (cli-site-boards (clingon:getopt cmd :site))))
+                  (format t "Configured on ~a:~%" site)
+                  (if aliases
+                      (iter (for (local . remote) in aliases)
+                        (format t "  ~a -> ~a~%" local remote))
+                      (format t "  (none)~%"))
+                  (with-cli-site (site)
+                    (format t "Available on the server:~%")
+                    (iter (for board in (getf (api-call :get "/api/boards") :boards))
+                      (format t "  ~a | ~a | ~a~%"
+                              (getf board :id)
+                              (getf board :name)
+                              (getf board :type)))))))
+   :options (list (make-site-option))))
 
 (defun make-remote-list-command ()
   "Create the list command."
   (clingon:make-command
    :name "list"
-   :description "List tickets (defaults to the stored board)"
+   :description "List tickets in a board"
    :handler (lambda (cmd)
               (with-api-errors
-                (let* ((status (clingon:getopt cmd :status))
-                       (priority (clingon:getopt cmd :priority))
-                       (assignee (clingon:getopt cmd :assignee))
-                       (board (or (clingon:getopt cmd :board) (cli-default-board-id)))
-                       (limit (clingon:getopt cmd :limit))
-                       (page (clingon:getopt cmd :page))
-                       (search (clingon:getopt cmd :search))
-                       (json? (clingon:getopt cmd :json)))
-                  (if search
-                      (print-ticket-list-remote
-                       (getf (api-call :get "/api/tickets/search"
-                                       :query (build-query `(:q ,search)))
-                             :tickets)
-                       json?)
-                      (print-ticket-list-remote
-                       (getf (api-call :get "/api/tickets"
-                                       :query (build-query `(:status ,status
-                                                                :priority ,priority
-                                                                :assignee-id ,assignee
-                                                                :board-id ,board
-                                                                :limit ,limit
-                                                                :page ,page)))
-                             :tickets)
-                       json?)))))
-   :options (list (clingon:make-option :string :long-name "status"
+                (multiple-value-bind (board site) (cli-require-board-spec cmd)
+                  (with-cli-site (site)
+                    (let* ((status (clingon:getopt cmd :status))
+                           (priority (clingon:getopt cmd :priority))
+                           (assignee (clingon:getopt cmd :assignee))
+                           (limit (clingon:getopt cmd :limit))
+                           (page (clingon:getopt cmd :page))
+                           (search (clingon:getopt cmd :search))
+                           (json? (clingon:getopt cmd :json))
+                           (board-id (cli-resolve-board-id site board)))
+                      (cond (search
+                             (print-ticket-list-remote
+                              (getf (api-call :get "/api/tickets/search"
+                                              :query (build-query `(:q ,search)))
+                                    :tickets)
+                              json?))
+                            (board-id
+                             (print-ticket-list-remote
+                              (getf (api-call :get "/api/tickets"
+                                              :query (build-query `(:status ,status
+                                                                       :priority ,priority
+                                                                       :assignee-id ,assignee
+                                                                       :board-id ,board-id
+                                                                       :limit ,limit
+                                                                       :page ,page)))
+                                     :tickets)
+                              json?))
+                            (t (format t "Board ~a not found on site ~a.~%" board site)
+                               (format t "See: focus-cli list-boards --site ~a~%" site))))))))
+   :options (list (make-board-option)
+                  (clingon:make-option :string :long-name "status"
                                        :description "Filter by status" :key :status)
                   (clingon:make-option :string :long-name "priority"
                                        :description "Filter by priority" :key :priority)
                   (clingon:make-option :integer :long-name "assignee"
                                        :description "Filter by assignee ID" :key :assignee)
-                  (clingon:make-option :integer :long-name "board"
-                                       :description "Board ID" :key :board)
                   (clingon:make-option :integer :long-name "limit"
                                        :description "Max tickets to show" :key :limit
                                        :initial-value 20)
@@ -253,33 +459,40 @@
    :description "Show ticket details, labels, and comments"
    :handler (lambda (cmd)
               (with-api-errors
-                (let* ((id (cli-int-arg cmd 0))
-                       (ticket (when id (api-call :get (format nil "/api/tickets/~a" id)))))
-                  (if ticket
-                      (remote-show-ticket ticket (clingon:getopt cmd :json))
-                      (format t "Ticket not found~%")))))
-   :options (list (clingon:make-option :flag :long-name "json"
+                (with-cli-site ((clingon:getopt cmd :site))
+                  (let* ((id (cli-int-arg cmd 0))
+                         (ticket (when id (api-call :get (format nil "/api/tickets/~a" id)))))
+                    (if ticket
+                        (remote-show-ticket ticket (clingon:getopt cmd :json))
+                        (format t "Ticket not found~%"))))))
+   :options (list (make-site-option)
+                  (clingon:make-option :flag :long-name "json"
                                        :description "Output as JSON" :key :json))))
 
 (defun make-remote-create-command ()
   "Create the create command."
   (clingon:make-command
    :name "create"
-   :description "Create a new ticket (defaults to the stored board)"
+   :description "Create a new ticket in a board"
    :handler (lambda (cmd)
               (with-api-errors
-                (let* ((title (clingon:getopt cmd :title))
-                       (board (or (clingon:getopt cmd :board) (cli-default-board-id)))
-                       (result (api-call :post "/api/tickets"
-                                         :body `(:title ,title
-                                                  :board-id ,board
-                                                  :description ,(clingon:getopt cmd :description)
-                                                  :status ,(clingon:getopt cmd :status)
-                                                  :priority ,(clingon:getopt cmd :priority)
-                                                  :assignee-id ,(clingon:getopt cmd :assignee)
-                                                  :color ,(clingon:getopt cmd :color)))))
-                  (format t "Created ticket ~a~%" (getf result :id)))))
-   :options (list (clingon:make-option :string :long-name "title"
+                (multiple-value-bind (board site) (cli-require-board-spec cmd)
+                  (with-cli-site (site)
+                    (let ((title (clingon:getopt cmd :title))
+                          (board-id (cli-resolve-board-id site board)))
+                      (if board-id
+                          (let ((result (api-call :post "/api/tickets"
+                                                  :body `(:title ,title
+                                                           :board-id ,board-id
+                                                           :description ,(clingon:getopt cmd :description)
+                                                           :status ,(clingon:getopt cmd :status)
+                                                           :priority ,(clingon:getopt cmd :priority)
+                                                           :assignee-id ,(clingon:getopt cmd :assignee)
+                                                           :color ,(clingon:getopt cmd :color)))))
+                            (format t "Created ticket ~a~%" (getf result :id)))
+                          (format t "Board ~a not found on site ~a.~%" board site)))))))
+   :options (list (make-board-option)
+                  (clingon:make-option :string :long-name "title"
                                        :description "Ticket title" :key :title :required t)
                   (clingon:make-option :string :long-name "description"
                                        :description "Ticket description" :key :description)
@@ -289,8 +502,6 @@
                   (clingon:make-option :string :long-name "status"
                                        :description "Ticket status" :key :status
                                        :initial-value "open")
-                  (clingon:make-option :integer :long-name "board"
-                                       :description "Board ID" :key :board)
                   (clingon:make-option :integer :long-name "assignee"
                                        :description "Assignee ID" :key :assignee)
                   (clingon:make-option :string :long-name "color"
@@ -303,19 +514,21 @@
    :description "Update a ticket"
    :handler (lambda (cmd)
               (with-api-errors
-                (let* ((id (cli-int-arg cmd 0))
-                       (result (when id
-                                 (api-call :put (format nil "/api/tickets/~a" id)
-                                           :body `(:title ,(clingon:getopt cmd :title)
-                                                    :description ,(clingon:getopt cmd :description)
-                                                    :status ,(clingon:getopt cmd :status)
-                                                    :priority ,(clingon:getopt cmd :priority)
-                                                    :assignee-id ,(clingon:getopt cmd :assignee)
-                                                    :color ,(clingon:getopt cmd :color))))))
-                  (if result
-                      (format t "Updated ticket ~a~%" id)
-                      (format t "Ticket not found~%")))))
-   :options (list (clingon:make-option :string :long-name "title"
+                (with-cli-site ((clingon:getopt cmd :site))
+                  (let* ((id (cli-int-arg cmd 0))
+                         (result (when id
+                                   (api-call :put (format nil "/api/tickets/~a" id)
+                                             :body `(:title ,(clingon:getopt cmd :title)
+                                                      :description ,(clingon:getopt cmd :description)
+                                                      :status ,(clingon:getopt cmd :status)
+                                                      :priority ,(clingon:getopt cmd :priority)
+                                                      :assignee-id ,(clingon:getopt cmd :assignee)
+                                                      :color ,(clingon:getopt cmd :color))))))
+                    (if result
+                        (format t "Updated ticket ~a~%" id)
+                        (format t "Ticket not found~%"))))))
+   :options (list (make-site-option)
+                  (clingon:make-option :string :long-name "title"
                                        :description "New title" :key :title)
                   (clingon:make-option :string :long-name "description"
                                        :description "New description" :key :description)
@@ -335,13 +548,14 @@
    :description "Delete a ticket"
    :handler (lambda (cmd)
               (with-api-errors
-                (let ((id (cli-int-arg cmd 0)))
-                  (if id
-                      (progn
-                        (api-call :delete (format nil "/api/tickets/~a" id))
-                        (format t "Deleted ticket ~a~%" id))
-                      (format t "Missing ticket ID~%")))))
-   :options nil))
+                (with-cli-site ((clingon:getopt cmd :site))
+                  (let ((id (cli-int-arg cmd 0)))
+                    (if id
+                        (progn
+                          (api-call :delete (format nil "/api/tickets/~a" id))
+                          (format t "Deleted ticket ~a~%" id))
+                        (format t "Missing ticket ID~%")))))) 
+   :options (list (make-site-option))))
 
 (defun make-remote-comment-add-command ()
   "Create the comment add command."
@@ -350,15 +564,17 @@
    :description "Add a comment to a ticket (as the stored agent)"
    :handler (lambda (cmd)
               (with-api-errors
-                (let* ((ticket (cli-int-arg cmd 0))
-                       (body (clingon:getopt cmd :body))
-                       (result (when (and ticket body)
-                                 (api-call :post (format nil "/api/tickets/~a/comments" ticket)
-                                           :body `(:body ,body)))))
-                  (if result
-                      (format t "Added comment ~a to ticket ~a~%" (getf result :id) ticket)
-                      (format t "Usage: focus-cli comment add TICKET --body TEXT~%")))))
-   :options (list (clingon:make-option :string :long-name "body"
+                (with-cli-site ((clingon:getopt cmd :site))
+                  (let* ((ticket (cli-int-arg cmd 0))
+                         (body (clingon:getopt cmd :body))
+                         (result (when (and ticket body)
+                                   (api-call :post (format nil "/api/tickets/~a/comments" ticket)
+                                             :body `(:body ,body)))))
+                    (if result
+                        (format t "Added comment ~a to ticket ~a~%" (getf result :id) ticket)
+                        (format t "Usage: focus-cli comment add TICKET --body TEXT~%"))))))
+   :options (list (make-site-option)
+                  (clingon:make-option :string :long-name "body"
                                        :description "Comment text" :key :body :required t))))
 
 (defun make-remote-comment-list-command ()
@@ -368,14 +584,15 @@
    :description "List comments on a ticket"
    :handler (lambda (cmd)
               (with-api-errors
-                (let ((ticket (cli-int-arg cmd 0)))
-                  (if ticket
-                      (iter (for comment in (getf (api-call :get
-                                                            (format nil "/api/tickets/~a/comments" ticket))
-                                                  :comments))
-                        (format t "~a | ~a~%" (getf comment :id) (getf comment :body)))
-                      (format t "Missing ticket ID~%")))))
-   :options nil))
+                (with-cli-site ((clingon:getopt cmd :site))
+                  (let ((ticket (cli-int-arg cmd 0)))
+                    (if ticket
+                        (iter (for comment in (getf (api-call :get
+                                                              (format nil "/api/tickets/~a/comments" ticket))
+                                                    :comments))
+                          (format t "~a | ~a~%" (getf comment :id) (getf comment :body)))
+                        (format t "Missing ticket ID~%"))))))
+   :options (list (make-site-option))))
 
 (defun make-remote-comment-delete-command ()
   "Create the comment delete command."
@@ -384,14 +601,15 @@
    :description "Delete a comment from a ticket"
    :handler (lambda (cmd)
               (with-api-errors
-                (let ((ticket (cli-int-arg cmd 0))
-                      (comment (cli-int-arg cmd 1)))
-                  (if (and ticket comment)
-                      (progn
-                        (api-call :delete (format nil "/api/tickets/~a/comments/~a" ticket comment))
-                        (format t "Deleted comment ~a from ticket ~a~%" comment ticket))
-                      (format t "Usage: focus-cli comment delete TICKET COMMENT~%")))))
-   :options nil))
+                (with-cli-site ((clingon:getopt cmd :site))
+                  (let ((ticket (cli-int-arg cmd 0))
+                        (comment (cli-int-arg cmd 1)))
+                    (if (and ticket comment)
+                        (progn
+                          (api-call :delete (format nil "/api/tickets/~a/comments/~a" ticket comment))
+                          (format t "Deleted comment ~a from ticket ~a~%" comment ticket))
+                        (format t "Usage: focus-cli comment delete TICKET COMMENT~%"))))))
+   :options (list (make-site-option))))
 
 (defun make-remote-comment-command ()
   "Create the comment command group."
@@ -408,14 +626,14 @@
    :name "list"
    :description "List all labels"
    :handler (lambda (cmd)
-              (declare (ignore cmd))
               (with-api-errors
-                (iter (for label in (getf (api-call :get "/api/labels") :labels))
-                  (format t "~a | ~a | ~a~%"
-                          (getf label :id)
-                          (getf label :name)
-                          (getf label :color)))))
-   :options nil))
+                (with-cli-site ((clingon:getopt cmd :site))
+                  (iter (for label in (getf (api-call :get "/api/labels") :labels))
+                    (format t "~a | ~a | ~a~%"
+                            (getf label :id)
+                            (getf label :name)
+                            (getf label :color))))))
+   :options (list (make-site-option))))
 
 (defun make-remote-label-tag-command (name description post)
   "Create a shared label add/remove command by NAME."
@@ -424,16 +642,17 @@
    :description description
    :handler (lambda (cmd)
               (with-api-errors
-                (let ((ticket (cli-int-arg cmd 0))
-                      (label (cli-int-arg cmd 1)))
-                  (if (and ticket label)
-                      (progn
-                        (api-call (if post :post :delete)
-                                  (format nil "/api/tickets/~a/labels/~a" ticket label))
-                        (format t "~a label ~a ~a ticket ~a~%"
-                                (if post "Added" "Removed") label (if post "to" "from") ticket))
-                      (format t "Usage: focus-cli label ~a TICKET LABEL~%" name)))))
-   :options nil))
+                (with-cli-site ((clingon:getopt cmd :site))
+                  (let ((ticket (cli-int-arg cmd 0))
+                        (label (cli-int-arg cmd 1)))
+                    (if (and ticket label)
+                        (progn
+                          (api-call (if post :post :delete)
+                                    (format nil "/api/tickets/~a/labels/~a" ticket label))
+                          (format t "~a label ~a ~a ticket ~a~%"
+                                  (if post "Added" "Removed") label (if post "to" "from") ticket))
+                        (format t "Usage: focus-cli label ~a TICKET LABEL~%" name))))))
+   :options (list (make-site-option))))
 
 (defun make-remote-label-command ()
   "Create the label command group."
@@ -444,28 +663,6 @@
                        (make-remote-label-tag-command "add" "Add a label to a ticket" t)
                        (make-remote-label-tag-command "remove" "Remove a label from a ticket" nil))))
 
-(defun make-remote-board-list-command ()
-  "Create the board list command."
-  (clingon:make-command
-   :name "list"
-   :description "List boards visible to the agent"
-   :handler (lambda (cmd)
-              (declare (ignore cmd))
-              (with-api-errors
-                (iter (for board in (getf (api-call :get "/api/boards") :boards))
-                  (format t "~a | ~a | ~a~%"
-                          (getf board :id)
-                          (getf board :name)
-                          (getf board :type)))))
-   :options nil))
-
-(defun make-remote-board-command ()
-  "Create the board command group."
-  (clingon:make-command
-   :name "board"
-   :description "Boards visible to the agent"
-   :sub-commands (list (make-remote-board-list-command))))
-
 (defun make-remote-root-command ()
   "Create the focus-cli root command."
   (clingon:make-command
@@ -474,16 +671,17 @@
    :handler (lambda (cmd)
               (declare (ignore cmd))
               (format t "No subcommand given. See 'focus-cli --help'.~%"))
-   :sub-commands (list (make-remote-configure-command)
-                       (make-remote-status-command)
+   :sub-commands (list (make-remote-add-site-command)
+                       (make-remote-add-board-command)
+                       (make-remote-list-sites-command)
+                       (make-remote-list-boards-command)
                        (make-remote-list-command)
                        (make-remote-show-command)
                        (make-remote-create-command)
                        (make-remote-update-command)
                        (make-remote-delete-command)
                        (make-remote-comment-command)
-                       (make-remote-label-command)
-                       (make-remote-board-command))))
+                       (make-remote-label-command))))
 
 (defun remote-main ()
   "Entry point for the focus-cli binary."

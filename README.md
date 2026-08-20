@@ -60,11 +60,33 @@ with a stored agent API key (`Authorization: Bearer`), no database access.
 Config lives in `~/.focus-cli`.
 
 ```bash
-focus-cli configure --server http://host:8080 --key "focusN-..."
-focus-cli list [--status open] [--search QUERY]
-focus-cli show 123
-focus-cli comment add 123 --body "Looking into it"
+focus-cli add-site --name work --url http://host:8080 \
+                   --key "focusN-..."          # one key per site
+focus-cli add-board --site work                 # pick boards interactively
+focus-cli add-board --site work --board Helpdesk --name hd   # alias hd -> Helpdesk
+focus-cli list-sites                            # sites + board aliases
+focus-cli list-boards --site work               # aliases + server boards
+focus-cli list --board work/helpdesk [--status open]  # site + board in one
+focus-cli list --board hd [--status open]       # by local alias
+focus-cli create --title "Deploy" --board work/helpdesk
+focus-cli show 1 --site work                    # explicit site
+focus-cli comment add 1 --site work --body "Looking into it"
 ```
+
+`~/.focus-cli` holds several named **sites** — each a server URL + key (the
+key is per site) + any number of **board aliases** from that server. `add-site
+--name NAME --url URL --key KEY` adds or updates one; there is no active site.
+`add-board` fetches the boards the agent can see on that server and stores
+aliases (interactive picker if `--board` is omitted; `--name` sets a shorter
+local alias). A site's server URL is its separator: boards named the same on
+different servers don't collide.
+
+Every command names its target explicitly: `list`/`create` take a mandatory
+`--board SITE/BOARD` (a local alias, remote name, or numeric id);
+`show`/`update`/`delete`/`comment`/`label`/`add-board`/`list-boards` take a
+mandatory `--site NAME`. `FOCUS_BOARD` supplies the board for `list`/`create`;
+`FOCUS_SITE` supplies the site for the rest. Boards are stored **by name** and
+re-resolved against their server on each command (rename-safe).
 
 See `docs/PROJECT.md` for the full command reference for both binaries.
 

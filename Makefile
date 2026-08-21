@@ -31,6 +31,8 @@ prepare:
 
 frontend: prepare
 	cd frontend && lein cljsbuild once min
+	sed -i -E 's/\?v=[0-9-]+/?v='"$$(date +%Y%m%d-%H)"'/g' \
+		frontend/resources/public/index.html
 	cp frontend/resources/public/index.html build/static/
 	cp -r frontend/resources/public/img build/static/
 	cp frontend/resources/public/css/style.css build/static/css/

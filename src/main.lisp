@@ -31,14 +31,21 @@
   (dolist (lib (cffi:list-foreign-libraries))
     (ignore-errors (cffi:close-foreign-library lib)))
   (dolist (lib (cffi:list-foreign-libraries :loaded-only nil))
-    (ignore-errors
-     (cffi:load-foreign-library (cffi:foreign-library-name lib))))
+    (let ((name (cffi:foreign-library-name lib)))
+      (if (ignore-errors (cffi:load-foreign-library name))
+          (bl:info "Loaded foreign library ~s" name)
+          (bl:warn "Failed to load foreign library ~s" name))))
   ;; Belt and braces: if the build host's cl+ssl predates OpenSSL 3, its
   ;; candidate lists may not include the target's sonames. Load the usual
   ;; ones directly — whichever succeeds makes the symbols globally visible.
   (dolist (name '("libcrypto.so.3" "libcrypto.so.1.1" "libcrypto.so"
                   "libssl.so.3" "libssl.so.1.1" "libssl.so"))
-    (ignore-errors (cffi:load-foreign-library name))))
+    (ignore-errors (cffi:load-foreign-library name)))
+  ;; Fail loudly if something critical did not come back.
+  (dolist (symbol '("SSL_new" "uv_loop_init"))
+    (unless (cffi:foreign-symbol-pointer symbol)
+      (bl:warn "Foreign symbol ~a is unresolved after library reload —
+ TLS or the event loop will fail" symbol))))
 
 (defun app (env)
   "Main app handler — routes to WS or normal handler."
@@ -82,7 +89,6 @@
 (defun start-server (cmd)
   "Bootstrap the database and run the web server."
   (setf *random-state* (make-random-state t))
-  (reload-foreign-libraries)
   (let ((args (clingon:command-arguments cmd)))
     (when args
       (format t "Unknown command: ~{~a~^ ~}~%" args)
@@ -92,7 +98,12 @@
     (setf *config* config)
     ;; Configure logging
     (bl:configure-log-level :info)
+    ;; bazon-log captures *standard-output*'s value at load time; in a
+    ;; dumped binary that is the build process's stdout. Re-anchor.
+    (bl:configure-log-path nil)
     (bl:info "focus starting...")
+    ;; Re-open foreign libraries against THIS host before anything uses them
+    (reload-foreign-libraries)
     ;; Set router trampoline
     (setf *router* (function router))
     ;; Connect DB, migrate, OAuth2, optional rebuild

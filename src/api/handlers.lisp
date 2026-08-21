@@ -114,7 +114,12 @@
    (hash-tables, vectors, atoms), or NIL when absent or malformed."
   (let ((content (raw-body-string env)))
     (when (and content (> (length content) 0))
-      (ignore-errors (jzon:parse content)))))
+      (or (ignore-errors (jzon:parse content))
+          (progn
+            (bl:warn "Malformed JSON body (~a bytes): ~s"
+                     (length content)
+                     (subseq content 0 (min 200 (length content))))
+            nil)))))
 
 (defun percent-decode (str)
   "Decode percent-encoded octets in STR (e.g. '%20' -> space)."

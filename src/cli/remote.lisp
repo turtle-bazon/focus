@@ -749,5 +749,8 @@
 
 (defun remote-main ()
   "Entry point for the focus-cli binary."
+  ;; Re-anchor logging to this process (see reload-foreign-libraries).
+  (bl:configure-log-level :info)
+  (bl:configure-log-path nil)
   (reload-foreign-libraries)
   (clingon:run (make-remote-root-command)))

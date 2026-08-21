@@ -1,7 +1,7 @@
 (defsystem :focus
   :name "focus"
   :license "GPL-3.0-or-later"
-  :version "0.0.2.0"
+  :version "0.0.2.1"
   :description "Ticket tracker"
   :depends-on (#:clack
                #:clack-handler-wookie

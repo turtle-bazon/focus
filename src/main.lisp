@@ -32,14 +32,18 @@
     (ignore-errors (cffi:close-foreign-library lib)))
   (dolist (lib (cffi:list-foreign-libraries :loaded-only nil))
     (let ((name (cffi:foreign-library-name lib)))
-      (if (ignore-errors (cffi:load-foreign-library name))
-          (bl:info "Loaded foreign library ~s" name)
-          (bl:warn "Failed to load foreign library ~s" name))))
+      (handler-case
+          (progn
+            (cffi:load-foreign-library name)
+            (bl:info "Loaded foreign library ~s" name))
+        (error (e)
+          (bl:warn "Failed to load foreign library ~s: ~a" name e)))))
   ;; Belt and braces: if the build host's cl+ssl predates OpenSSL 3, its
   ;; candidate lists may not include the target's sonames. Load the usual
   ;; ones directly — whichever succeeds makes the symbols globally visible.
   (dolist (name '("libcrypto.so.3" "libcrypto.so.1.1" "libcrypto.so"
-                  "libssl.so.3" "libssl.so.1.1" "libssl.so"))
+                  "libssl.so.3" "libssl.so.1.1" "libssl.so"
+                  "libuv.so.1" "libuv.so"))
     (ignore-errors (cffi:load-foreign-library name)))
   ;; Fail loudly if something critical did not come back.
   (dolist (symbol '("SSL_new" "uv_loop_init"))

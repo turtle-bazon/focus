@@ -32,10 +32,7 @@
     (ignore-errors (cffi:close-foreign-library lib)))
   (dolist (lib (cffi:list-foreign-libraries :loaded-only nil))
     (let ((name (cffi:foreign-library-name lib)))
-      (handler-case
-          (progn
-            (cffi:load-foreign-library name)
-            (bl:info "Loaded foreign library ~s" name))
+      (handler-case (cffi:load-foreign-library name)
         (error (e)
           (bl:warn "Failed to load foreign library ~s: ~a" name e)))))
   ;; Belt and braces: if the build host's cl+ssl predates OpenSSL 3, its

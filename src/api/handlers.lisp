@@ -114,7 +114,7 @@
    (hash-tables, vectors, atoms), or NIL when absent or malformed."
   (let ((content (raw-body-string env)))
     (when (and content (> (length content) 0))
-      (or (ignore-errors (jzon:parse content))
+      (or (ignore-errors (jzon:parse content :max-string-length nil))
           (progn
             (bl:warn "Malformed JSON body (~a bytes): ~s"
                      (length content)
@@ -1258,7 +1258,8 @@
                                               ts nonce ciphertext tag))
                  (request (jzon:parse
                            (flexi-streams:octets-to-string plaintext
-                                                           :external-format :utf-8)))
+                                                           :external-format :utf-8)
+                           :max-string-length nil))
                  (method (json-assoc :method request))
                  (path (json-assoc :path request)))
             (unless (valid-agent-request-p method path)

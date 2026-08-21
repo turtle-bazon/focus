@@ -149,7 +149,7 @@
 (defun envelope-parse-json (json-string)
   "Decode envelope JSON into (values ts nonce ciphertext tag), or NIL if any
    field is missing or malformed."
-  (let ((obj (ignore-errors (jzon:parse json-string))))
+  (let ((obj (ignore-errors (jzon:parse json-string :max-string-length nil))))
     (when (hash-table-p obj)
       (let ((ts (envelope-json-key obj "ts")))
         (when (and (integerp ts)

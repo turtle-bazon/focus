@@ -119,7 +119,7 @@ Returns (values email name username picture) or signals an error."
          (response (dexador:request userinfo-uri
                                    :headers `(("Authorization" . ,(format nil "Bearer ~a" access-tok)))
                                    :force-string t))
-         (user-data (jzon:parse response))
+         (user-data (jzon:parse response :max-string-length nil))
          (email-key (config->oauth2-userinfo-email-key *config*))
          (username-key (config->oauth2-userinfo-username-key *config*))
          (name-key (config->oauth2-userinfo-name-key *config*))

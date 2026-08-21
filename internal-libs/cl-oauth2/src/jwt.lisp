@@ -22,7 +22,7 @@ Returns an alist of claims."
          (payload-part (second parts)))
     (when payload-part
       (let ((json (base64-url-decode payload-part)))
-        (cl-json:decode-json-from-string json)))))
+        (json-value->lisp (com.inuoe.jzon:parse json))))))
 
 (defun jwt-claim (claim payload-alist)
   "Extract a specific claim from a decoded JWT payload."

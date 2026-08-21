@@ -118,9 +118,31 @@
 
 ;;; JSON helpers
 
+(defun json-key-symbol (name)
+  "Translate a JSON object name to a keyword the way cl-json did:
+   underscores become double dashes, e.g. access_token -> :ACCESS--TOKEN."
+  (intern (with-output-to-string (out)
+            (iter (for c in-string (string name))
+                  (if (char= c #\_)
+                      (write-string "--" out)
+                      (write-char c out))))
+          :keyword))
+
+(defun json-value->lisp (value)
+  "Convert a parsed jzon structure into alists with cl-json-style keys."
+  (cond ((hash-table-p value)
+         (iter (for (key val) in-hashtable value)
+           (collecting (cons (json-key-symbol key)
+                             (json-value->lisp val)))))
+        ((vectorp value)
+         (iter (for item in-vector value)
+           (collecting (json-value->lisp item))))
+        ((eq value :null) nil)
+        (t value)))
+
 (defun parse-json-response (body)
   "Parse a JSON response body into an alist."
-  (cl-json:decode-json-from-string body))
+  (json-value->lisp (com.inuoe.jzon:parse body)))
 
 (defun json-assoc (key alist)
   "Look up KEY in alist."

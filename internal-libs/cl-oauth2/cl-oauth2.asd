@@ -3,7 +3,7 @@
   :version "0.1.0"
   :description "OAuth2 / OpenID Connect client for Common Lisp"
   :depends-on (#:dexador
-               #:cl-json
+               #:com.inuoe.jzon
                #:ironclad
                #:cl-base64
                #:split-sequence

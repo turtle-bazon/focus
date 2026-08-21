@@ -74,7 +74,7 @@
 (defun decode-json-text (text)
   "Decode TEXT as JSON into plists, or return NIL."
   (when (and text (plusp (length text)))
-    (ignore-errors (json-> (jzon:parse text)))))
+    (ignore-errors (json-> (jzon:parse text :max-string-length nil)))))
 
 (defvar *focus-cli-server* nil
   "Bound to the active site's server URL by WITH-CLI-SITE.")
@@ -130,7 +130,8 @@
                                  "Envelope authentication failed"))))
            (inner (jzon:parse
                    (flexi-streams:octets-to-string plaintext
-                                                   :external-format :utf-8))))
+                                                   :external-format :utf-8)
+                   :max-string-length nil)))
       (values (or (envelope-json-key inner "status") 500)
               (or (envelope-json-key inner "body") "")))))
 
@@ -174,20 +175,33 @@
          (payload (envelope-request-payload master method path query body))
          (url (format nil "~a/api/agent" server)))
     (handler-case
-        (multiple-value-bind (resp status)
+        (multiple-value-bind (stream status)
             (dexador:request url :method :post :bearer-auth bearer
                              :content payload
                              :headers '(("content-type" . "application/json"))
-                             :want-stream t)
+                             :want-stream t :keep-alive nil
+                             :force-binary t)
           (declare (ignore status))
-          (multiple-value-bind (inner-status body-text)
-              (envelope-response-values master (read-all-stream resp))
-            (unless (<= 200 inner-status 299)
-              (let ((decoded (decode-json-text body-text)))
-                (error 'api-error :message
-                       (or (getf decoded :error)
-                           (format nil "HTTP ~a" inner-status)))))
-            (decode-json-text body-text)))
+          ;; Read the raw socket to EOF ourselves: dexador assembles
+          ;; content-length'd bodies with a single READ-SEQUENCE, which may
+          ;; legally return early and truncate large (>1MB) envelopes.
+          (let* ((buf (make-array 65536 :element-type '(unsigned-byte 8)))
+                 (text (with-output-to-string (out)
+                         (loop for n = (read-sequence buf stream)
+                               do (write-string
+                                   (flexi-streams:octets-to-string
+                                    buf :end n :external-format :utf-8)
+                                   out)
+                               until (< n (length buf)))
+                         (close stream))))
+            (multiple-value-bind (inner-status body-text)
+                (envelope-response-values master text)
+              (unless (<= 200 inner-status 299)
+                (let ((decoded (decode-json-text body-text)))
+                  (error 'api-error :message
+                         (or (getf decoded :error)
+                             (format nil "HTTP ~a" inner-status)))))
+              (decode-json-text body-text))))
       (api-error (e) (error e))
       (dexador.error:http-request-failed (e)
         (error 'api-error :message (failed-call-message master e)))

@@ -770,7 +770,10 @@ Check --bearer, --server-public and --agent-private — swapped, stale, or revok
 (defun remote-main ()
   "Entry point for the focus-cli binary."
   ;; Re-anchor logging to this process (see reload-foreign-libraries).
+  ;; The CLI talks synchronous HTTP via dexador/usocket: it needs TLS but
+  ;; never the libuv event loop, so skip libuv instead of warning about it.
   (bl:configure-log-level :info)
   (bl:configure-log-path nil)
-  (reload-foreign-libraries)
+  (reload-foreign-libraries :skip-libraries '("LIBUV")
+                            :required-symbols '("SSL_new"))
   (clingon:run (make-remote-root-command)))

@@ -22,19 +22,24 @@
 (defvar *router* nil)
 (defvar *config* nil)
 
-(defun reload-foreign-libraries ()
+(defun reload-foreign-libraries (&key skip-libraries required-symbols)
   "Refresh CFFI foreign libraries against the running host. Binaries are
    dumped with shared objects marked dont-save, so nothing is reopened at
    startup by build-host soname (libcrypto.so.1.1 vs .so.3); here we drop
    the stale handles and load every registered library through its own
-   candidate list, matching whatever the target machine has."
+   candidate list, matching whatever the target machine has.
+   SKIP-LIBRARIES lists base names (e.g. \"LIBUV\") the caller never uses;
+   REQUIRED-SYMBOLS are checked after loading, warning loudly if missing."
   (dolist (lib (cffi:list-foreign-libraries))
     (ignore-errors (cffi:close-foreign-library lib)))
-  (dolist (lib (cffi:list-foreign-libraries :loaded-only nil))
-    (let ((name (cffi:foreign-library-name lib)))
-      (handler-case (cffi:load-foreign-library name)
-        (error (e)
-          (bl:warn "Failed to load foreign library ~s: ~a" name e)))))
+  (flet ((base-name (name)
+           (if (symbolp name) (symbol-name name) (princ-to-string name))))
+    (dolist (lib (cffi:list-foreign-libraries :loaded-only nil))
+      (let ((name (cffi:foreign-library-name lib)))
+        (unless (member (base-name name) skip-libraries :test #'string-equal)
+          (handler-case (cffi:load-foreign-library name)
+            (error (e)
+              (bl:warn "Failed to load foreign library ~s: ~a" name e)))))))
   ;; Belt and braces: if the build host's cl+ssl predates OpenSSL 3, its
   ;; candidate lists may not include the target's sonames. Load the usual
   ;; ones directly — whichever succeeds makes the symbols globally visible.
@@ -43,10 +48,10 @@
                   "libuv.so.1" "libuv.so"))
     (ignore-errors (cffi:load-foreign-library name)))
   ;; Fail loudly if something critical did not come back.
-  (dolist (symbol '("SSL_new" "uv_loop_init"))
+  (dolist (symbol (or required-symbols '("SSL_new" "uv_loop_init")))
     (unless (cffi:foreign-symbol-pointer symbol)
       (bl:warn "Foreign symbol ~a is unresolved after library reload —
- TLS or the event loop will fail" symbol))))
+ the feature depending on it will fail" symbol))))
 
 (defun app (env)
   "Main app handler — routes to WS or normal handler."

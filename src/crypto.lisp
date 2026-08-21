@@ -57,14 +57,20 @@
 
 (defun x25519-import-public (text)
   "Deserialize an X25519 public key exported by X25519-EXPORT-PUBLIC."
-  (ironclad:make-public-key :curve25519
-                            :y (cl-base64:base64-string-to-usb8-array text)))
+  (let ((bytes (cl-base64:base64-string-to-usb8-array text)))
+    (unless (= (length bytes) 32)
+      (error "Invalid X25519 public key: base64 decodes to ~a bytes, expected 32"
+             (length bytes)))
+    (ironclad:make-public-key :curve25519 :y bytes)))
 
 (defun x25519-import-private (text)
   "Deserialize an X25519 private key exported by X25519-EXPORT-PRIVATE.
    The public component is recomputed on import."
-  (ironclad:make-private-key :curve25519
-                             :x (cl-base64:base64-string-to-usb8-array text)))
+  (let ((bytes (cl-base64:base64-string-to-usb8-array text)))
+    (unless (= (length bytes) 32)
+      (error "Invalid X25519 private key: base64 decodes to ~a bytes, expected 32"
+             (length bytes)))
+    (ironclad:make-private-key :curve25519 :x bytes)))
 
 (defun x25519-shared-secret (private-key public-key)
   "Compute the 32-byte X25519 shared secret for PRIVATE-KEY and PUBLIC-KEY."

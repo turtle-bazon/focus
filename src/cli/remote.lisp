@@ -194,6 +194,19 @@
       (error (e)
         (error 'api-error :message (princ-to-string e))))))
 
+(defun verify-agent-credentials (server bearer server-public agent-private)
+  "Make a live enveloped request to SERVER to confirm these credentials
+   actually authenticate before storing them. Returns (VALUES OK ERROR)."
+  (handler-case
+      (progn
+        (let ((*focus-cli-server* server)
+              (*focus-cli-bearer* bearer)
+              (*focus-cli-server-public* server-public)
+              (*focus-cli-agent-private* agent-private))
+          (api-call :get "/api/boards"))
+        (values t nil))
+    (api-error (e) (values nil (api-error-message e)))))
+
 (defmacro with-api-errors (&body body)
   "Run BODY, printing any api-error and continuing."
   `(handler-case (progn ,@body)

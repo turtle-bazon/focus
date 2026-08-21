@@ -149,7 +149,15 @@
 
 (defun cli-add-site (name url bearer server-public agent-private)
   "Add or update SITE with its server URL and agent shape credentials,
-   keeping existing boards."
+   keeping existing boards. Credentials are verified against the live
+   server first — nothing is stored unless the server accepts them."
+  (multiple-value-bind (ok err)
+      (verify-agent-credentials url bearer server-public agent-private)
+    (unless ok
+      (error 'api-error :message
+             (format nil "credentials rejected by ~a (~a). Check --bearer, ~
+ --server-public and --agent-private — swapped, stale, or revoked?"
+                     url err))))
   (let* ((old (cli-site-config name))
          (sites (remove name (getf (read-cli-config) :sites)
                         :key #'car :test #'string=)))

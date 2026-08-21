@@ -2300,7 +2300,9 @@ body {
 
 .settings-agent-key-token {
   width: 100%;
-  padding: 10px 12px;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 12px;
   border: 1px solid #334155;
   border-radius: 6px;
   background-color: #0f172a;
@@ -2317,13 +2319,19 @@ body {
 .settings-agent-key-token-row {
   display: flex;
   gap: 8px;
-  align-items: stretch;
+  align-items: center;
+}
+
+.settings-agent-key-token-row + .settings-agent-key-token-row {
+  margin-top: 8px;
 }
 
 .btn-copy-key {
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 40px;
+  flex-shrink: 0;
   padding: 0 12px;
   border: none;
   border-radius: 6px;
@@ -2341,6 +2349,14 @@ body {
 .btn-copy-key.copied {
   background-color: #16a34a;
   color: #ffffff;
+}
+
+.btn-copy-cli {
+  width: 100%;
+  height: 36px;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 13px;
 }
 
 .btn-copy-key.copied:hover {

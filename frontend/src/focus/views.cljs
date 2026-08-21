@@ -2361,10 +2361,30 @@
                        (rf/dispatch [:close-agent-create-modal]))}
           (t :settings/create-agent)]]]])))
 
-(defn- copy-to-clipboard [text]
-  (when-let [cb (.-clipboard js/navigator)]
-    (when (.-writeText cb)
-      (.catch (.writeText cb text) (fn [_])))))
+(defn- copy-via-exec-command [text]
+  (let [ta (js/document.createElement "textarea")]
+    (set! (.-value ta) text)
+    (set! (.-style.position ta) "fixed")
+    (set! (.-style.opacity ta) "0")
+    (js/document.body.appendChild ta)
+    (.select ta)
+    (let [ok (.execCommand js/document "copy")]
+      (js/document.body.removeChild ta)
+      ok)))
+
+(defn- copy-to-clipboard [text on-done]
+  (let [fallback #(on-done (copy-via-exec-command text))]
+    (if-let [clipboard (.-clipboard js/navigator)]
+      (-> (.writeText clipboard text)
+          (.then #(on-done true))
+          (.catch fallback))
+      (fallback))))
+
+(defn- cli-add-site-command [{:keys [bearer server-public agent-private]}]
+  (str "focus-cli add-site --name mysite --url " js/location.origin
+       " --bearer " bearer
+       " --server-public " server-public
+       " --agent-private " agent-private))
 
 (defn key-modal []
   (let [copied? (r/atom #{})]
@@ -2389,22 +2409,38 @@
                  :readOnly true
                  :value (or value "")
                  :on-focus (fn [e] (-> e .-target .select))}]
-               [:button.btn-copy-key
-                {:class (when (contains? @copied? label) "copied")
-                 :on-click (fn []
-                             (copy-to-clipboard value)
-                             (swap! copied? conj label)
-                             (js/setTimeout #(swap! copied? disj label) 1500))
-                 :title (if (contains? @copied? label)
-                          (t :settings/copied)
-                          (t :settings/copy))}
-                (if (contains? @copied? label)
-                  [lucide-icon "Check" {:size 16}]
-                  [lucide-icon "Copy" {:size 16}])]])
-            [:div.confirm-modal-actions
-             [:button.btn-cancel
-              {:on-click #(rf/dispatch [:close-key-modal])}
-              (t :common/done)]]]])))))
+                [:button.btn-copy-key
+                 {:class (when (contains? @copied? label) "copied")
+                  :on-click (fn []
+                              (copy-to-clipboard value
+                                (fn [ok]
+                                  (when ok
+                                    (swap! copied? conj label)
+                                    (js/setTimeout #(swap! copied? disj label)
+                                                   1500)))))
+                  :title (if (contains? @copied? label)
+                           (t :settings/copied)
+                           (t :settings/copy))}
+                  (if (contains? @copied? label)
+                    [lucide-icon "Check" {:size 16}]
+                    [lucide-icon "Copy" {:size 16}])]])
+              [:button.btn-copy-key.btn-copy-cli
+               {:class (when (contains? @copied? :cli) "copied")
+                :on-click (fn []
+                            (copy-to-clipboard (cli-add-site-command modal)
+                              (fn [ok]
+                                (when ok
+                                  (swap! copied? conj :cli)
+                                  (js/setTimeout #(swap! copied? disj :cli)
+                                                 1500)))))
+                :title (t :settings/copy-cli)}
+               [lucide-icon
+                (if (contains? @copied? :cli) "Check" "Terminal") {:size 16}]
+               (t :settings/copy-cli)]
+             [:div.confirm-modal-actions
+              [:button.btn-cancel
+               {:on-click #(rf/dispatch [:close-key-modal])}
+               (t :common/done)]]]])))))
 
 (defn- user-dropdown-options
   [options label-fn on-select close]

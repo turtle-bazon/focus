@@ -37,12 +37,12 @@
   "Extract a bearer token from the Authorization header, or nil."
   (let ((auth (authorization-header-from-env env)))
     (when (and auth (typep auth 'string))
-      (let ((trimmed (string-trim " " auth)))
+      (let ((trimmed (string/trim auth " ")))
         (when (>= (length trimmed) 7)
           (let ((scheme (subseq trimmed 0 (min 6 (length trimmed)))))
             (when (and (string-equal scheme "Bearer")
                        (> (length trimmed) 7))
-              (string-trim " " (subseq trimmed 7)))))))))
+              (string/trim (subseq trimmed 7) " "))))))))
 
 (defun make-oauth2-client-from-config (config)
   "Create an OAuth2 client from focus.conf settings."
@@ -57,17 +57,11 @@
 
 (defun generate-state ()
   "Generate a random state parameter for CSRF protection."
-  (let ((bytes (make-array 16 :element-type '(unsigned-byte 8))))
-    (iter (for i from 0 below 16)
-      (setf (aref bytes i) (random 256)))
-    (format nil "~{~2,'0x~}" (coerce bytes 'list))))
+  (random-token-hex 16))
 
 (defun generate-session-id ()
   "Generate a random 32-character hex session ID."
-  (let ((bytes (make-array 16 :element-type '(unsigned-byte 8))))
-    (iter (for i from 0 below 16)
-      (setf (aref bytes i) (random 256)))
-    (format nil "~{~2,'0x~}" (coerce bytes 'list))))
+  (random-token-hex 16))
 
 ;;; Auth handlers
 
@@ -94,11 +88,10 @@ cl-json converts json_key to :json--key (double hyphen)."
   (let* ((kw-single (intern (substitute #\- #\_ (string-upcase key)) :keyword))
          ;; cl-json converts _ to -- (double hyphen), e.g. first_name → :first--name
          (doubled (with-output-to-string (s)
-                    (loop for ch across key
-                          if (char= ch #\_)
-                            do (write-string "--" s)
-                          else
-                            do (write-char (char-upcase ch) s))))
+                    (iter (for ch in-string key)
+                      (if (char= ch #\_)
+                          (write-string "--" s)
+                          (write-char (char-upcase ch) s)))))
          (kw-double (intern doubled :keyword))
          (kw-lower (intern (string-downcase doubled) :keyword)))
     (or (cdr (assoc kw-single json :test #'equal))
@@ -207,13 +200,12 @@ Returns (values email name username picture) or signals an error."
 
 (defun handle-auth-me (env)
   "GET /api/auth/me — return current user info."
-  (let* ((session-id (cl-oauth2:get-session-id-from-request env))
-         (db-session (when session-id (get-db-session session-id))))
-    (if db-session
-        (let* ((user-id (getf db-session :user-id))
-               (user (get-user-by-id user-id)))
-          (json-response `(:user ,user :authenticated ,t)))
-        (json-response `(:authenticated ,nil) 401))))
+  (if-let (db-session (when-let (session-id (cl-oauth2:get-session-id-from-request env))
+                        (get-db-session session-id)))
+      (let* ((user-id (getf db-session :user-id))
+             (user (get-user-by-id user-id)))
+        (json-response `(:user ,user :authenticated ,t)))
+      (json-response `(:authenticated ,nil) 401)))
 
 (defun handle-auth-logout (env)
   "POST /api/auth/logout — clear session."

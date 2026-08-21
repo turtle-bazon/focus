@@ -42,12 +42,12 @@
   (cond ((null obj) nil)
         ((and (listp obj) (consp (car obj)))
          (if (consp (caar obj))
-             (mapcar #'json-> obj)
+             (iter (for item in obj) (collecting (json-> item)))
              (let ((plist nil))
                (iter (for (key . val) in obj)
                  (setf plist (list* (json-key key) (list* (json-> val) plist))))
                plist)))
-        ((listp obj) (mapcar #'json-> obj))
+        ((listp obj) (iter (for item in obj) (collecting (json-> item))))
         (t obj)))
 
 (defun url-encode (str)
@@ -67,8 +67,9 @@
                       (substitute #\_ #\- (string-downcase (symbol-name key)))
                       (url-encode (princ-to-string val)))
               parts)))
-    (unless (null parts)
-      (format nil "~{~a~^&~}" (nreverse parts)))))
+    (if parts
+        (string/join (nreverse parts) "&")
+        nil)))
 
 (defun decode-json-text (text)
   "Decode TEXT as JSON into plists, or return NIL."
@@ -235,7 +236,7 @@
 (defun cli-require-board-spec (cmd)
   "Parse the --board SPEC as SITE/BOARD; signals api-error unless both parts
   exist. Returns (values BOARD SITE)."
-  (let ((spec (string-trim '(#\Space #\Tab) (or (clingon:getopt cmd :board) ""))))
+  (let ((spec (string/trim (or (clingon:getopt cmd :board) "") '(#\Space #\Tab))))
     (unless (position #\/ spec)
       (error 'api-error :message
              "Specify the board as SITE/BOARD, e.g. --board work/helpdesk"))
@@ -256,7 +257,7 @@
   "Resolve each SPEC (numeric id or name) in SPECS against BOARDS plists.
   Returns an alist of (board-name . board-id), skipping unknown boards."
   (iter (for spec in specs)
-    (let* ((text (string-trim " " spec))
+    (let* ((text (string/trim spec " "))
            (id (ignore-errors (parse-integer text)))
            (board (if id
                       (find id boards :key (lambda (b) (getf b :id)) :test #'eql)
@@ -271,29 +272,18 @@
   (format t "Local name for '~a' [~a]: " remote remote)
   (finish-output)
   (let ((line (read-line *standard-input* nil nil)))
-    (if (and line (plusp (length (string-trim '(#\Space #\Tab) line))))
-        (string-trim '(#\Space #\Tab) line)
+    (if (and line (plusp (length (string/trim line '(#\Space #\Tab)))))
+        (string/trim line '(#\Space #\Tab))
         remote)))
 
 (defun cli-resolve-board-id (site ref)
   "Resolve REF to a board id in SITE: a numeric id, a stored local alias
-  (resolved to its remote name via the API), or a board's remote name.
-  Returns NIL when nothing resolves."
-  (let ((num (ignore-errors (parse-integer ref))))
-    (cond (num num)
-          (t (board-id-by-name (remote-list-boards)
-                               (or (cli-local-board-remote site ref) ref))))))
-
-(defun print-ticket-list-remote (tickets json?)
-  "Print a list of ticket plists."
-  (if json?
-      (cli-json `(:tickets ,tickets :count ,(length tickets)))
-      (iter (for ticket in tickets)
-        (format t "~a | ~a | ~a | ~a~%"
-                (getf ticket :id)
-                (getf ticket :title)
-                (getf ticket :status)
-                (getf ticket :priority)))))
+   (resolved to its remote name via the API), or a board's remote name.
+   Returns NIL when nothing resolves."
+  (if-let (num (ignore-errors (parse-integer ref)))
+    num
+    (board-id-by-name (remote-list-boards)
+                      (or (cli-local-board-remote site ref) ref))))
 
 (defun remote-labels (ticket-id)
   "Fetch labels for TICKET-ID via the API."
@@ -304,19 +294,7 @@
   (let* ((labels (remote-labels (getf ticket :id)))
          (result (api-call :get (format nil "/api/tickets/~a/comments" (getf ticket :id))))
          (comments (getf result :comments)))
-    (if json?
-        (cli-json `(:ticket ,ticket :labels ,labels :comments ,comments))
-        (progn
-          (format t "Ticket ~a: ~a~%" (getf ticket :id) (getf ticket :title))
-          (format t "  Status: ~a | Priority: ~a~%"
-                  (getf ticket :status) (getf ticket :priority))
-          (when (getf ticket :description)
-            (format t "  ~a~%" (getf ticket :description)))
-          (format t "  Labels: ~{~a~^, ~}~%"
-                  (iter (for label in labels) (collecting (getf label :name))))
-          (format t "  Comments:~%")
-          (iter (for comment in comments)
-            (format t "    [#~a] ~a~%" (getf comment :id) (getf comment :body)))))))
+    (print-ticket-with ticket labels comments json?)))
 
 (defun split-words (text &optional (separators '(#\Space #\Tab #\,)))
   "Split TEXT into trimmed non-empty words on SEPARATORS."
@@ -339,10 +317,10 @@
   (format t "Choose boards (numbers or names, space/comma separated; empty = all): ")
   (finish-output)
   (let ((line (read-line *standard-input* nil nil)))
-    (if (and line (plusp (length (string-trim '(#\Space #\Tab) line))))
+    (if (and line (plusp (length (string/trim line '(#\Space #\Tab)))))
         (let ((texts (split-words line)))
           (iter (for text in texts)
-            (let* ((clean (string-trim '(#\Space #\Tab) text))
+            (let* ((clean (string/trim text '(#\Space #\Tab)))
                    (n (parse-integer clean :junk-allowed t))
                    (board (cond ((and n (<= 1 n (length boards)))
                                  (nth (1- n) boards))
@@ -504,13 +482,13 @@
                (json? (clingon:getopt cmd :json))
                (board-id (cli-resolve-board-id site board)))
           (cond (search
-                 (print-ticket-list-remote
+                 (print-ticket-list
                   (getf (api-call :get "/api/tickets/search"
                                   :query (build-query `(:q ,search)))
                         :tickets)
                   json?))
                 (board-id
-                 (print-ticket-list-remote
+                 (print-ticket-list
                   (getf (api-call :get "/api/tickets"
                                   :query (build-query `(:status ,status
                                                          :priority ,priority

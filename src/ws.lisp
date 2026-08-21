@@ -83,11 +83,10 @@
   "Broadcast a message to connected clients. When TO-BOARD is given, only
    clients who may view that board receive it."
   (bt:with-lock-held (*ws-lock*)
-    (maphash (lambda (id entry)
-               (when (or (null to-board)
-                         (user-can-view-board to-board (ws-user-id entry)))
-                 (ws-send id entry message)))
-             *ws-connections*)))
+    (iter (for (id entry) in-hashtable *ws-connections*)
+      (when (or (null to-board)
+                (user-can-view-board to-board (ws-user-id entry)))
+        (ws-send id entry message)))))
 
 (defun ws-broadcast-ticket-update (ticket)
   "Broadcast a ticket update to clients who can see its board."

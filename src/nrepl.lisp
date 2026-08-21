@@ -39,7 +39,7 @@
    reported but do not end the client session."
   (let ((line (read-line stream nil nil)))
     (when line
-      (let ((trimmed (string-trim '(#\Space #\Tab #\Newline #\Return) line)))
+      (let ((trimmed (string/trim line)))
         (when (> (length trimmed) 0)
           (handler-case
               (let ((result (eval (read-from-string trimmed))))

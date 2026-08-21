@@ -138,7 +138,7 @@
 
 (defun envelope-json-key (alist name)
   "Look up NAME in a cl-json decoded envelope alist (uppercase keywords)."
-  (cdr (assoc (intern (string-upcase name) :keyword) alist :test #'equal)))
+  (assoc-ref (intern (string-upcase name) :keyword) alist))
 
 (defun envelope-parse-json (json-string)
   "Decode envelope JSON into (values ts nonce ciphertext tag), or NIL if any

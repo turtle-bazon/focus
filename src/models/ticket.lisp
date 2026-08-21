@@ -122,7 +122,9 @@
            (sets (iter (for i from 1 to count)
                        (for (col . nil) in assignments)
                        (collecting (format nil "~a = $~d" col i))))
-           (params (append (mapcar #'cdr assignments) (list id))))
+           (params (append (iter (for (col . value) in assignments)
+                                 (collecting value))
+                           (list id))))
       (pg-query-params
        (format nil "UPDATE ~a SET ~{~a~^, ~}~a WHERE id = $~d"
                table sets extra (1+ count))
@@ -187,11 +189,11 @@
 (defun compress-group-if-needed (new-den board-id status priority)
   "Reassign contiguous positions when denominators grow too large."
   (when (> new-den +compression-threshold+)
-    (let ((all-ids (mapcar (lambda (plist) (getf plist :id))
-                           (pg-query-params
-                            "SELECT id FROM tickets WHERE status = $1 AND priority = $2 AND board_id = $3
-                             ORDER BY (position_num::float / position_den) ASC, created_at DESC"
-                            (list status priority board-id)))))
+    (let ((all-ids (iter (for plist in (pg-query-params
+                                         "SELECT id FROM tickets WHERE status = $1 AND priority = $2 AND board_id = $3
+                                          ORDER BY (position_num::float / position_den) ASC, created_at DESC"
+                                         (list status priority board-id)))
+                     (collecting (getf plist :id)))))
       (compress-positions all-ids))))
 
 (defun reposition-ticket (id new-status new-priority new-position)

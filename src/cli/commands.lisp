@@ -36,8 +36,8 @@
 
 (defun cli-int-arg (cmd index)
   "Parse the INDEX-th positional argument of CMD as an integer, or nil."
-  (let ((raw (nth index (cli-args cmd))))
-    (when raw (parse-integer (string raw) :junk-allowed t))))
+  (when-let (raw (nth index (cli-args cmd)))
+    (parse-integer (string raw) :junk-allowed t)))
 
 (defun cli-json (data)
   "Print DATA as a single JSON line."
@@ -189,23 +189,28 @@
                 (getf ticket :status)
                 (getf ticket :priority)))))
 
+(defun print-ticket-with (ticket labels comments json?)
+  "Print TICKET with its LABELS and COMMENTS as rows or JSON."
+  (if json?
+      (cli-json `(:ticket ,ticket :labels ,labels :comments ,comments))
+      (progn
+        (format t "Ticket ~a: ~a~%" (getf ticket :id) (getf ticket :title))
+        (format t "  Status: ~a | Priority: ~a~%"
+                (getf ticket :status) (getf ticket :priority))
+        (when (getf ticket :description)
+          (format t "  ~a~%" (getf ticket :description)))
+        (format t "  Labels: ~{~a~^, ~}~%"
+                (iter (for label in labels) (collecting (getf label :name))))
+        (format t "  Comments:~%")
+        (iter (for comment in comments)
+          (format t "    [#~a] ~a~%" (getf comment :id) (getf comment :body))))))
+
 (defun print-ticket-detail (ticket json?)
   "Print TICKET with its labels and comments."
-  (let ((labels (get-ticket-labels (getf ticket :id)))
-        (comments (list-comments (getf ticket :id))))
-    (if json?
-        (cli-json `(:ticket ,ticket :labels ,labels :comments ,comments))
-        (progn
-          (format t "Ticket ~a: ~a~%" (getf ticket :id) (getf ticket :title))
-          (format t "  Status: ~a | Priority: ~a~%"
-                  (getf ticket :status) (getf ticket :priority))
-          (when (getf ticket :description)
-            (format t "  ~a~%" (getf ticket :description)))
-          (format t "  Labels: ~{~a~^, ~}~%"
-                  (iter (for label in labels) (collecting (getf label :name))))
-          (format t "  Comments:~%")
-          (iter (for comment in comments)
-            (format t "    [#~a] ~a~%" (getf comment :id) (getf comment :body)))))))
+  (print-ticket-with ticket
+                     (get-ticket-labels (getf ticket :id))
+                     (list-comments (getf ticket :id))
+                     json?))
 
 (defun cli-list-handler (cmd)
   "Handler for the local list command."

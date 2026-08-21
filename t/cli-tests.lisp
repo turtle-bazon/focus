@@ -43,8 +43,8 @@
          (agent (find-if (lambda (cmd)
                            (string= "agent" (clingon:command-name cmd)))
                          (clingon:command-sub-commands root)))
-         (names (mapcar #'clingon:command-name
-                        (clingon:command-sub-commands agent))))
+         (names (iter (for cmd in (clingon:command-sub-commands agent))
+                  (collecting (clingon:command-name cmd)))))
     (is (member "init" names :test #'string=))
     (is (member "use" names :test #'string=))))
 
@@ -52,8 +52,8 @@
   (let ((cmd (focus::make-remote-root-command)))
     (is (string= (clingon:command-name cmd) "focus-cli"))
     (is (= 11 (length (clingon:command-sub-commands cmd))))
-    (dolist (name '("add-site" "add-board" "list-sites" "list-boards" "list"
-                    "show" "create" "update" "delete" "comment" "label"))
+    (iter (for name in '("add-site" "add-board" "list-sites" "list-boards" "list"
+                         "show" "create" "update" "delete" "comment" "label"))
       (is (find-if (lambda (sub) (string= name (clingon:command-name sub)))
                    (clingon:command-sub-commands cmd))
           "focus-cli should have ~a subcommand" name))
@@ -131,7 +131,7 @@
       (is (string= "Queue" (focus::cli-local-board-remote "work" "hd"))))))
 
 (test site-scoped-commands-take-site-option
-  (dolist (sub (clingon:command-sub-commands (focus::make-remote-root-command)))
+  (iter (for sub in (clingon:command-sub-commands (focus::make-remote-root-command)))
     (when (member (clingon:command-name sub)
                   '("show" "update" "delete" "add-board" "list-boards")
                   :test #'string=)
@@ -151,7 +151,7 @@
     (is (null site))))
 
 (test remote-commands-take-board-env
-  (dolist (name '("list" "create"))
+  (iter (for name in '("list" "create"))
     (let* ((root (focus::make-remote-root-command))
            (sub (find-if (lambda (c) (string= name (clingon:command-name c)))
                          (clingon:command-sub-commands root)))

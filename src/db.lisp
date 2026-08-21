@@ -136,7 +136,7 @@ SQL uses $1, $2, etc. PARAMS is a list of values. Returns rows as plists."
 
 (defun blank-statement-p (current)
   "T if the accumulated statement CURRENT trims to nothing."
-  (string= "" (string-trim " " current)))
+  (string= "" (string/trim current " ")))
 
 (defun split-sql (sql)
   "Split SQL string by semicolons, handling dollar-quoted strings."
@@ -161,7 +161,7 @@ SQL uses $1, $2, etc. PARAMS is a list of values. Returns rows as plists."
               ;; Split on semicolons only when not inside dollar-quoted block
               ((and (char= ch #\;) (not in-dollar))
                (unless (blank-statement-p current)
-                 (push (string-trim " " (copy-seq current)) result))
+                 (push (string/trim (copy-seq current) " ") result))
                (start-new-statement)
                (incf i))
               ;; Regular character
@@ -169,7 +169,7 @@ SQL uses $1, $2, etc. PARAMS is a list of values. Returns rows as plists."
                (advance ch)
                (incf i)))))
     (unless (blank-statement-p current)
-      (push (string-trim " " (copy-seq current)) result))
+      (push (string/trim (copy-seq current) " ") result))
     (nreverse result)))
 
 (defun migrate-up (&optional (migrations *migrations*))
@@ -181,7 +181,7 @@ SQL uses $1, $2, etc. PARAMS is a list of values. Returns rows as plists."
         (call-with-reconnect
          (lambda ()
            (iter (for stmt in (split-sql up))
-             (bind ((trimmed (string-trim " " stmt)))
+             (bind ((trimmed (string/trim stmt " ")))
                (unless (string= trimmed "")
                  (postmodern:execute trimmed))))))
         (set-version version)
@@ -197,7 +197,7 @@ SQL uses $1, $2, etc. PARAMS is a list of values. Returns rows as plists."
         (call-with-reconnect
          (lambda ()
            (iter (for stmt in (split-sql down))
-             (bind ((trimmed (string-trim " " stmt)))
+             (bind ((trimmed (string/trim stmt " ")))
                (unless (string= trimmed "")
                  (postmodern:execute trimmed))))
            (postmodern:execute

@@ -26,13 +26,13 @@
     ((typep plist 'local-time:timestamp)
      (princ-to-string plist))
     ((and (listp plist) (keywordp (car plist)))
-     (let ((ht (make-hash-table :test 'equal)))
+     (let ((ht (hash/empty #'equal)))
        (iter (for (key val) on plist by #'cddr)
-         (setf (gethash (if (keywordp key)
-                            (substitute #\_ #\- (string-downcase (symbol-name key)))
-                            (format nil "~a" key))
-                        ht)
-               (plist-to-json val)))
+         (hash/put ht
+                   (if (keywordp key)
+                       (substitute #\_ #\- (string-downcase (symbol-name key)))
+                       (format nil "~a" key))
+                   (plist-to-json val)))
        ht))
     ((and (listp plist) (consp (car plist)))
      (iter (for item in plist) (collecting (plist-to-json item))))
@@ -72,9 +72,8 @@
       (collecting (cons (normalize-json-key key) val)))))
 
 (defun json-assoc (key alist)
-  "Look up KEY in ALIST using EQUAL test after normalizing both to hyphens."
-  (let ((normalized (intern (substitute #\- #\_ (string key)) :keyword)))
-    (cdr (assoc normalized alist :test #'equal))))
+  "Look up KEY in ALIST using EQUAL test after normalizing to hyphens."
+  (assoc-ref (intern (substitute #\- #\_ (string key)) :keyword) alist))
 
 (defun as-int (value)
   "Coerce a JSON value to an integer. cl-json decodes numbers as integers,
@@ -118,21 +117,20 @@
         (let ((ch (char str i)))
           (if (and (char= ch #\%)
                    (< (+ i 2) (length str)))
-              (let ((hex (parse-integer (subseq str (1+ i) (+ i 3))
-                                        :radix 16 :junk-allowed t)))
-                (if hex
-                    (progn
-                      (vector-push-extend (code-char hex) out)
-                      (incf i 2))
-                    (vector-push-extend ch out)))
+              (if-let (hex (parse-integer (subseq str (1+ i) (+ i 3))
+                                          :radix 16 :junk-allowed t))
+                  (progn
+                    (vector-push-extend (code-char hex) out)
+                    (incf i 2))
+                  (vector-push-extend ch out))
               (vector-push-extend ch out))))
       (coerce out 'string))))
 
 (defun parse-query-string (query-string)
   "Parse a URL query string into an alist of percent-decoded pairs."
   (when (and query-string (plusp (length query-string)))
-    (iter (for pair in (split-sequence:split-sequence #\& query-string))
-      (collecting (let ((kv (split-sequence:split-sequence #\= pair)))
+    (iter (for pair in (string/split query-string #\&))
+      (collecting (let ((kv (string/split pair #\=)))
                     (let ((key (percent-decode (car kv)))
                           (value (percent-decode (cadr kv))))
                       (cons key value)))))))
@@ -151,22 +149,20 @@
 
 (defun get-user-id-from-env (env)
   "Extract user ID from session cookie. Returns integer or NIL."
-  (let* ((session-id (cl-oauth2:get-session-id-from-request env))
-         (db-session (when session-id (get-db-session session-id))))
-    (when db-session
+  (when-let (session-id (cl-oauth2:get-session-id-from-request env))
+    (when-let (db-session (get-db-session session-id))
       (getf db-session :user-id))))
 
 (defun get-actor (env)
   "Return the acting identity as a plist, or nil. For a session cookie user:
    (:user-id N). For an agent envelope request: (:agent-id N :user-id <owner>
    :agent <plist>) from the :focus-agent injected by handle-agent-envelope."
-  (or (let ((uid (get-user-id-from-env env)))
-        (when uid (list :user-id uid)))
-      (let ((agent (getf env :focus-agent)))
-        (when agent
-          (list :agent-id (getf agent :id)
-                :user-id (getf agent :owner-id)
-                :agent agent)))))
+  (or (when-let (uid (get-user-id-from-env env))
+        (list :user-id uid))
+      (when-let (agent (getf env :focus-agent))
+        (list :agent-id (getf agent :id)
+              :user-id (getf agent :owner-id)
+              :agent agent))))
 
 (defun log-activity (ticket-id actor-id action &key agent-id details)
   "Log an activity entry and broadcast it live. Silently ignores errors.
@@ -315,8 +311,8 @@
               (values (error-response
                        "Status transition is not allowed by this board's workflow")
                       status))
-          (let ((codes (mapcar (lambda (s) (getf s :code))
-                               (list-board-statuses new-board))))
+          (let ((codes (iter (for s in (list-board-statuses new-board))
+                         (collecting (getf s :code)))))
             (values nil
                     (if (member status codes :test #'string=)
                         status
@@ -510,8 +506,8 @@
                        (error-response "Ticket not found" 404))))))
         (error-response "Invalid comment ID"))))
 
-(defun handle-add-ticket-label (env)
-  "POST /api/tickets/:id/labels/:ref — add a label (by ID) to a ticket."
+(defun handle-modify-ticket-label (env add?)
+  "Shared impl for adding/removing a label (by ID) on a ticket."
   (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/labels/\\w+$")))
     (if id
         (let ((label (extract-id-from-path (getf env :path-info)
@@ -523,32 +519,21 @@
                       (if forbidden
                           forbidden
                           (progn
-                            (add-label-to-ticket id label)
-                            (json-response `(:labels ,(get-ticket-labels id)))))
-                      )
+                            (if add?
+                                (add-label-to-ticket id label)
+                                (remove-label-from-ticket id label))
+                            (json-response `(:labels ,(get-ticket-labels id))))))
                     (error-response "Ticket not found" 404)))
               (error-response "Invalid label ID")))
         (error-response "Invalid ticket ID"))))
 
+(defun handle-add-ticket-label (env)
+  "POST /api/tickets/:id/labels/:ref — add a label (by ID) to a ticket."
+  (handle-modify-ticket-label env t))
+
 (defun handle-remove-ticket-label (env)
   "DELETE /api/tickets/:id/labels/:ref — remove a label (by ID) from a ticket."
-  (let ((id (extract-id-from-path (getf env :path-info) "^/api/tickets/(\\d+)/labels/\\w+$")))
-    (if id
-        (let ((label (extract-id-from-path (getf env :path-info)
-                                           "^/api/tickets/\\d+/labels/(\\d+)$")))
-          (if label
-              (let ((ticket (get-ticket-by-id id)))
-                (if ticket
-                    (let ((forbidden (actor-board-access-error env (getf ticket :board-id))))
-                      (if forbidden
-                          forbidden
-                          (progn
-                            (remove-label-from-ticket id label)
-                            (json-response `(:labels ,(get-ticket-labels id)))))
-                      )
-                    (error-response "Ticket not found" 404)))
-              (error-response "Invalid label ID")))
-        (error-response "Invalid ticket ID"))))
+  (handle-modify-ticket-label env nil))
 
 (defun handle-list-ticket-labels (env)
   "GET /api/tickets/:id/labels — list labels on a ticket."
@@ -926,6 +911,10 @@
   (unless (can-manage-board board-id user-id)
     (error-response "You don't have permission to modify this board" 403)))
 
+(defun board-manager-check (board-id env)
+  "Return a 403 response unless the session user of ENV may manage BOARD-ID."
+  (board-manage-error board-id (get-user-id-from-env env)))
+
 (defun board-member-change-permitted (env board-id member-type member-id user-id)
   "Return NIL if the actor may add/remove MEMBER-TYPE/MEMBER-ID on BOARD-ID,
    or a 403 response otherwise. Any user may manage their own agents on boards
@@ -994,8 +983,8 @@
   "PUT /api/boards/:id"
   (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)$")))
     (if id
-        (let ((user-id (get-user-id-from-env env)))
-          (let ((forbidden (board-manage-error id user-id)))
+        (progn
+          (let ((forbidden (board-manager-check id env)))
             (when forbidden (return-from handle-update-board forbidden)))
           (bind ((body (parse-json-body env))
                  (name (json-assoc :name body)))
@@ -1006,8 +995,8 @@
   "DELETE /api/boards/:id"
   (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)$")))
     (if id
-        (let ((user-id (get-user-id-from-env env)))
-          (let ((forbidden (board-manage-error id user-id)))
+        (progn
+          (let ((forbidden (board-manager-check id env)))
             (when forbidden (return-from handle-delete-board forbidden)))
           (delete-board id)
           (json-response `(:message "Board deleted")))
@@ -1073,8 +1062,8 @@
   "POST /api/boards/:id/statuses"
   (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)/statuses$")))
     (if id
-        (let ((user-id (get-user-id-from-env env)))
-          (let ((forbidden (board-manage-error id user-id)))
+        (progn
+          (let ((forbidden (board-manager-check id env)))
             (when forbidden (return-from handle-create-board-status forbidden)))
           (bind ((body (parse-json-body env))
                  (code (json-assoc :code body))
@@ -1098,8 +1087,8 @@
          (board-id (extract-id-from-path path "^/api/boards/(\\d+)/statuses/\\d+$"))
          (status-id (extract-id-from-path path "^/api/boards/\\d+/statuses/(\\d+)$")))
     (if (and board-id status-id)
-        (let ((user-id (get-user-id-from-env env)))
-          (let ((forbidden (board-manage-error board-id user-id)))
+        (progn
+          (let ((forbidden (board-manager-check board-id env)))
             (when forbidden (return-from handle-update-board-status forbidden)))
           (bind ((body (parse-json-body env))
                  (name (json-assoc :name body))
@@ -1120,8 +1109,8 @@
          (board-id (extract-id-from-path path "^/api/boards/(\\d+)/statuses/\\d+$"))
          (status-id (extract-id-from-path path "^/api/boards/\\d+/statuses/(\\d+)$")))
     (if (and board-id status-id)
-        (let ((user-id (get-user-id-from-env env)))
-          (let ((forbidden (board-manage-error board-id user-id)))
+        (progn
+          (let ((forbidden (board-manager-check board-id env)))
             (when forbidden (return-from handle-delete-board-status forbidden)))
           (delete-board-status board-id status-id)
           (json-response `(:message "Status deleted")))
@@ -1141,8 +1130,8 @@
   "POST /api/boards/:id/transitions"
   (let ((id (extract-id-from-path (getf env :path-info) "^/api/boards/(\\d+)/transitions$")))
     (if id
-        (let ((user-id (get-user-id-from-env env)))
-          (let ((forbidden (board-manage-error id user-id)))
+        (progn
+          (let ((forbidden (board-manager-check id env)))
             (when forbidden (return-from handle-add-board-transition forbidden)))
           (bind ((body (parse-json-body env))
                  (from-code (json-assoc :from_code body))
@@ -1162,8 +1151,8 @@
                      ("^/api/boards/(\\d+)/transitions/([^/]+)/([^/]+)$" path)
                    (list (when bid (parse-integer bid)) from-code to-code))))
     (if (and board-id (second parts) (third parts))
-        (let ((user-id (get-user-id-from-env env)))
-          (let ((forbidden (board-manage-error (first parts) user-id)))
+        (progn
+          (let ((forbidden (board-manager-check (first parts) env)))
             (when forbidden (return-from handle-remove-board-transition forbidden)))
           (remove-board-transition (first parts) (second parts) (third parts))
           (json-response `(:message "Transition removed")))
@@ -1306,16 +1295,22 @@
           (let ((id (create-agent user-id name :description description)))
             (json-response `(:id ,id) 201))))))
 
+(defun owned-agent-error (id user-id)
+  "Return a 404 response unless the agent ID exists and belongs to USER-ID."
+  (let ((agent (get-agent-by-id id)))
+    (unless (and agent (= (getf agent :owner-id) user-id))
+      (error-response "Agent not found" 404))))
+
 (defun handle-get-agent (env)
   "GET /api/agents/:id"
   (multiple-value-bind (user-id forbidden) (require-session-user env)
     (if forbidden
         forbidden
         (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)$")))
-          (let ((agent (get-agent-by-id id)))
-            (if (and agent (= (getf agent :owner-id) user-id))
-                (json-response `(:agent ,agent))
-                (error-response "Agent not found" 404)))))))
+          (let ((denied (owned-agent-error id user-id)))
+            (if denied
+                denied
+                (json-response `(:agent ,(get-agent-by-id id)))))))))
 
 (defun handle-update-agent (env)
   "PUT /api/agents/:id"
@@ -1323,13 +1318,12 @@
     (if forbidden
         forbidden
         (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)$")))
-          (let ((agent (get-agent-by-id id)))
-            (unless (and agent (= (getf agent :owner-id) user-id))
-              (return-from handle-update-agent (error-response "Agent not found" 404)))
+          (let ((denied (owned-agent-error id user-id)))
+            (when denied (return-from handle-update-agent denied)))
           (bind ((body (parse-json-body env))
                  (name (json-assoc :name body))
                  (description (json-assoc :description body)))
-            (json-response `(:agent ,(update-agent id :name name :description description)))))))))
+            (json-response `(:agent ,(update-agent id :name name :description description))))))))
 
 (defun handle-delete-agent (env)
   "DELETE /api/agents/:id"
@@ -1337,11 +1331,10 @@
     (if forbidden
         forbidden
         (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)$")))
-          (let ((agent (get-agent-by-id id)))
-            (unless (and agent (= (getf agent :owner-id) user-id))
-              (return-from handle-delete-agent (error-response "Agent not found" 404)))
+          (let ((denied (owned-agent-error id user-id)))
+            (when denied (return-from handle-delete-agent denied)))
           (delete-agent id)
-          (json-response `(:message "Agent deleted")))))))
+          (json-response `(:message "Agent deleted"))))))
 
 (defun handle-list-agent-shapes (env)
   "GET /api/agents/:id/shapes"
@@ -1349,10 +1342,10 @@
     (if forbidden
         forbidden
         (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)/shapes$")))
-          (let ((agent (get-agent-by-id id)))
-            (unless (and agent (= (getf agent :owner-id) user-id))
-              (return-from handle-list-agent-shapes (error-response "Agent not found" 404)))
-          (json-response `(:shapes ,(list-agent-shapes id))))))))
+          (let ((denied (owned-agent-error id user-id)))
+            (if denied
+                denied
+                (json-response `(:shapes ,(list-agent-shapes id)))))))))
 
 (defun handle-create-agent-shape (env)
   "POST /api/agents/:id/shapes — create a new credential shape. Returns the
@@ -1362,9 +1355,8 @@
     (if forbidden
         forbidden
         (let ((id (extract-id-from-path (getf env :path-info) "^/api/agents/(\\d+)/shapes$")))
-          (let ((agent (get-agent-by-id id)))
-            (unless (and agent (= (getf agent :owner-id) user-id))
-              (return-from handle-create-agent-shape (error-response "Agent not found" 404)))
+          (let ((denied (owned-agent-error id user-id)))
+            (when denied (return-from handle-create-agent-shape denied)))
           (bind ((name (json-assoc :name (parse-json-body env)))
                  ((:values shape-id bearer server-public agent-private)
                   (create-agent-shape id (or name "web"))))
@@ -1373,7 +1365,7 @@
                              :server_public ,server-public
                              :agent_private ,agent-private
                              :agent_id ,id)
-                           201)))))))
+                           201))))))
 
 (defun handle-revoke-agent-shape (env)
   "DELETE /api/agents/:id/shapes/:shape_id"
@@ -1383,8 +1375,7 @@
         (let* ((path (getf env :path-info))
                (id (extract-id-from-path path "^/api/agents/(\\d+)/shapes/\\d+$"))
                (shape-id (extract-id-from-path path "^/api/agents/\\d+/shapes/(\\d+)$")))
-          (let ((agent (get-agent-by-id id)))
-            (unless (and agent (= (getf agent :owner-id) user-id))
-              (return-from handle-revoke-agent-shape (error-response "Agent not found" 404)))
+          (let ((denied (owned-agent-error id user-id)))
+            (when denied (return-from handle-revoke-agent-shape denied)))
           (revoke-agent-shape id shape-id)
-          (json-response `(:message "Shape revoked")))))))
+          (json-response `(:message "Shape revoked"))))))

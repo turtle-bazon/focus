@@ -27,9 +27,9 @@
 (defun sql-array-to-list (array-str)
   "Convert PostgreSQL array literal to list of strings."
   (when array-str
-    (let ((trimmed (string-trim "{}" array-str)))
+    (let ((trimmed (string/trim array-str "{}")))
       (when (> (length trimmed) 0)
-        (split-sequence:split-sequence #\, trimmed)))))
+        (string/split trimmed #\,)))))
 
 (defun create-webhook (url &key secret events active)
   "Create a new webhook. Returns the webhook ID."

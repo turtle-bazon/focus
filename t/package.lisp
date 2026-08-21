@@ -16,7 +16,7 @@
 ;;;
 
 (defpackage :focus/tests
-  (:use :cl :fiveam :focus)
+  (:use :cl :local-time :iterate :fiveam :focus)
   (:export #:run-focus-tests))
 
 (in-package :focus/tests)

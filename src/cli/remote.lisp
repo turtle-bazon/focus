@@ -221,22 +221,21 @@
     (cli-progress "~&[focus-cli] ~(~a~) ~a ... "
                   (string-downcase (symbol-name method)) path)
     (handler-case
-        (multiple-value-bind (stream status headers)
+        (multiple-value-bind (body status)
             (dexador:request url :method :post :bearer-auth bearer
                              :content payload
                              :headers '(("content-type" . "application/json"))
-                             :want-stream t :force-binary t)
+                             :force-binary t)
           (declare (ignore status))
-          ;; Read exactly Content-Length octets when framed: short reads on
-          ;; TLS are record boundaries, not EOF, and proxies may hold the
-          ;; socket open afterwards.
-          (let* ((total (header-number headers "content-length"))
-                 (bytes (if total
-                            (read-stream-exact stream total)
-                            (read-stream-to-eof stream)))
-                 (text (flexi-streams:octets-to-string
-                        bytes :external-format :utf-8)))
-            (close stream)
+          ;; Let dexador frame and assemble the body; reading pooled TLS
+          ;; streams ourselves deadlocks against proxies that keep the
+          ;; connection open after the response.
+          (let* ((text (typecase body
+                         (string body)
+                         (vector (flexi-streams:octets-to-string
+                                  body :external-format :utf-8))
+                         (stream (read-stream-to-eof body))
+                         (t (princ-to-string body)))))
             (multiple-value-bind (inner-status body-text)
                 (envelope-response-values master text)
               (unless (<= 200 inner-status 299)

@@ -359,7 +359,14 @@
                       (server-public (clingon:getopt cmd :server-public))
                       (agent-private (clingon:getopt cmd :agent-private)))
                   (if (and name url bearer server-public agent-private)
-                      (cli-add-site name url bearer server-public agent-private)
+                      (multiple-value-bind (ok err)
+                          (verify-agent-credentials url bearer server-public agent-private)
+                        (if ok
+                            (cli-add-site name url bearer server-public agent-private)
+                            (error 'api-error :message
+                                   (format nil "credentials rejected by ~a (~a). ~
+Check --bearer, --server-public and --agent-private — swapped, stale, or revoked?"
+                                           url err))))
                       (format t "Usage: focus-cli add-site --name NAME --url URL --bearer BEARER --server-public KEY --agent-private KEY~%")))))
    :options (list (clingon:make-option :string
                                         :long-name "name"

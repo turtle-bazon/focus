@@ -179,8 +179,7 @@
             (dexador:request url :method :post :bearer-auth bearer
                              :content payload
                              :headers '(("content-type" . "application/json"))
-                             :want-stream t :keep-alive nil
-                             :force-binary t)
+                             :want-stream t :force-binary t)
           (declare (ignore status))
           ;; Read the raw socket to EOF ourselves: dexador assembles
           ;; content-length'd bodies with a single READ-SEQUENCE, which may

@@ -158,9 +158,8 @@
         (format nil "HTTP ~a" (dexador:response-status e)))))
 
 (defun cli-progress-p ()
-  "Progress lines go to interactive stderr, or when FOCUS_CLI_TRACE=1."
-  (or (ignore-errors (interactive-stream-p *error-output*))
-      (string= (or (uiop:getenv "FOCUS_CLI_TRACE") "") "1")))
+  "Progress lines print only when FOCUS_CLI_TRACE=1."
+  (string= (or (uiop:getenv "FOCUS_CLI_TRACE") "") "1"))
 
 (defun cli-progress (fmt &rest args)
   "Print a progress line for the current enveloped call."

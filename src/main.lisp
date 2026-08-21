@@ -32,7 +32,13 @@
     (ignore-errors (cffi:close-foreign-library lib)))
   (dolist (lib (cffi:list-foreign-libraries :loaded-only nil))
     (ignore-errors
-     (cffi:load-foreign-library (cffi:foreign-library-name lib)))))
+     (cffi:load-foreign-library (cffi:foreign-library-name lib))))
+  ;; Belt and braces: if the build host's cl+ssl predates OpenSSL 3, its
+  ;; candidate lists may not include the target's sonames. Load the usual
+  ;; ones directly — whichever succeeds makes the symbols globally visible.
+  (dolist (name '("libcrypto.so.3" "libcrypto.so.1.1" "libcrypto.so"
+                  "libssl.so.3" "libssl.so.1.1" "libssl.so"))
+    (ignore-errors (cffi:load-foreign-library name))))
 
 (defun app (env)
   "Main app handler — routes to WS or normal handler."

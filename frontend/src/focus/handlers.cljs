@@ -835,9 +835,13 @@
  (fn [db [_ comment ticket-id]]
    (if (and (= (:current-view db) :detail)
             (= (:id (:current-ticket db)) ticket-id))
-      (-> db
-          (update :comments #(vec (cons comment %)))
-          (update :comments-total inc))
+     ;; The sender receives its own comment back over the websocket after
+     ;; the POST already inserted it — skip duplicates by id.
+     (if (some #(= (:id %) (:id comment)) (:comments db))
+       db
+       (-> db
+           (update :comments #(vec (cons comment %)))
+           (update :comments-total inc)))
      db)))
 
 ;;; Group events

@@ -41,7 +41,7 @@
 
 (defun cli-json (data)
   "Print DATA as a single JSON line."
-  (format t "~a~%" (cl-json:encode-json-to-string (plist-to-json data))))
+  (format t "~a~%" (jzon:stringify (plist-to-json data))))
 
 ;;; Compact clingon option constructors
 

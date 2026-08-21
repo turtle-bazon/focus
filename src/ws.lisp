@@ -91,7 +91,7 @@
 (defun ws-broadcast-ticket-update (ticket)
   "Broadcast a ticket update to clients who can see its board."
   (ws-broadcast
-   (cl-json:encode-json-to-string
+   (jzon:stringify
     (plist-to-json
      `(:type "ticket-update"
        :board_id ,(getf ticket :board-id)
@@ -101,7 +101,7 @@
 (defun ws-broadcast-ticket-created (ticket)
   "Broadcast a new ticket to clients who can see its board."
   (ws-broadcast
-   (cl-json:encode-json-to-string
+   (jzon:stringify
     (plist-to-json
      `(:type "ticket-created"
        :board_id ,(getf ticket :board-id)
@@ -111,7 +111,7 @@
 (defun ws-broadcast-ticket-deleted (ticket)
   "Broadcast ticket deletion to clients who can see its board."
   (ws-broadcast
-   (cl-json:encode-json-to-string
+   (jzon:stringify
     (plist-to-json
      `(:type "ticket-deleted"
        :id ,(getf ticket :id)
@@ -121,20 +121,22 @@
 (defun ws-broadcast-comment-created (comment ticket-id ticket-board)
   "Broadcast a new comment to clients who can see the ticket's board."
   (ws-broadcast
-   (cl-json:encode-json-to-string
-    `((:type . "comment-created")
-      (:ticket-board ,ticket-board)
-      (:ticket-id ,ticket-id)
-      (:data . ,(plist-to-json comment))))
+   (jzon:stringify
+    (hash/make (list (list "type" "comment-created")
+                     (list "ticket-board" ticket-board)
+                     (list "ticket-id" ticket-id)
+                     (list "data" (plist-to-json comment)))
+               :test #'equal))
    ticket-board))
 
 (defun ws-broadcast-activity-created (activity)
-  "Broadcast a new activity entry to clients who can see its board.
+  "Broadcast a new activity entry to clients who can see the board.
    ACTIVITY is a plist with at least :ticket_id and :board_id."
   (ws-broadcast
-   (cl-json:encode-json-to-string
-    `((:type . "activity-created")
-      (:data . ,(plist-to-json activity))))
+   (jzon:stringify
+    (hash/make (list (list "type" "activity-created")
+                     (list "data" (plist-to-json activity)))
+               :test #'equal))
    (getf activity :board_id)))
 
 ;;; WebSocket upgrade handler

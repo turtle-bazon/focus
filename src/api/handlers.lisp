@@ -20,9 +20,10 @@
 ;;; API Routes
 
 (defun plist-to-json (plist)
-  "Convert a plist to a hash-table for JSON encoding."
+  "Convert a plist to a hash-table for JSON encoding. NIL values become the
+   null sentinel so jzon emits null rather than false."
   (cond
-    ((null plist) nil)
+    ((null plist) 'null)
     ((typep plist 'local-time:timestamp)
      (princ-to-string plist))
     ((and (listp plist) (keywordp (car plist)))
@@ -44,39 +45,30 @@
   "Create a JSON response."
   (list status
         '(:content-type "application/json")
-        (list (cl-json:encode-json-to-string (plist-to-json data)))))
+        (list (jzon:stringify (plist-to-json data)))))
 
 (defun error-response (message &optional (status 400))
   "Create an error response."
   (json-response `(:error ,message) status))
 
-(defun normalize-json-key (key)
-  "Normalize a cl-json keyword key: replace double hyphens with single."
-  (let ((name (string key)))
-    (iter (with result = (make-array 0 :element-type 'character :adjustable t :fill-pointer 0))
-      (for i from 0 below (length name))
-      (for ch = (char name i))
-      (if (and (char= ch #\-)
-               (< (1+ i) (length name))
-               (char= (char name (1+ i)) #\-))
-          (progn
-            (vector-push-extend ch result)
-            (incf i))
-          (vector-push-extend ch result))
-      (finally (return (intern result :keyword))))))
+(defun json-normalize (value)
+  "Map the JSON null sentinel to NIL so null behaves like a missing value."
+  (if (eq value 'null) nil value))
 
-(defun normalize-json-body (alist)
-  "Normalize cl-json alist keys to use single hyphens."
-  (when alist
-    (iter (for (key . val) in alist)
-      (collecting (cons (normalize-json-key key) val)))))
-
-(defun json-assoc (key alist)
-  "Look up KEY in ALIST using EQUAL test after normalizing to hyphens."
-  (assoc-ref (intern (substitute #\- #\_ (string key)) :keyword) alist))
+(defun json-assoc (key obj)
+  "Look up KEY (a keyword) in a parsed JSON object OBJ (hash-table with
+   string keys). Tries the literal downcased name, then the underscore/
+   hyphen-swapped variant. JSON null and false both read as NIL."
+  (when (hash-table-p obj)
+    (let ((name (string-downcase (symbol-name key))))
+      (multiple-value-bind (value present-p) (gethash name obj)
+        (if present-p
+            (json-normalize value)
+            (json-normalize
+             (gethash (substitute #\- #\_ name) obj)))))))
 
 (defun as-int (value)
-  "Coerce a JSON value to an integer. cl-json decodes numbers as integers,
+  "Coerce a JSON value to an integer. jzon decodes numbers as integers,
    but other callers may pass strings."
   (cond ((integerp value) value)
         ((stringp value) (parse-integer value))
@@ -104,10 +96,11 @@
           (flexi-streams:octets-to-string body :external-format :utf-8)))))
 
 (defun parse-json-body (env)
-  "Parse JSON request body from Clack env."
+  "Parse the JSON request body from Clack env into jzon structures
+   (hash-tables, vectors, atoms), or NIL when absent or malformed."
   (let ((content (raw-body-string env)))
     (when (and content (> (length content) 0))
-      (normalize-json-body (cl-json:decode-json-from-string content)))))
+      (ignore-errors (jzon:parse content)))))
 
 (defun percent-decode (str)
   "Decode percent-encoded octets in STR (e.g. '%20' -> space)."
@@ -1198,11 +1191,10 @@
   "Encrypt an inner HTTP RESPONSE (a Clack list) into the envelope returned
    by POST /api/agent. The outer status mirrors the inner one."
   (let* ((status (first response))
-         (inner (with-output-to-string (stream)
-                  (cl-json:encode-json-alist
-                   `((:status . ,status)
-                     (:body . ,(response-body-text (third response))))
-                   stream)))
+         (inner (jzon:stringify
+                 (hash/make (list (list "status" status)
+                                  (list "body" (response-body-text (third response))))
+                            :test #'equal)))
          (ts (get-universal-time)))
     (multiple-value-bind (nonce ciphertext tag)
         (envelope-encrypt master +envelope-direction-response+ ts
@@ -1230,10 +1222,9 @@
           (let* ((master (agent-shape-master-key shape))
                  (plaintext (envelope-decrypt master +envelope-direction-request+
                                               ts nonce ciphertext tag))
-                 (request (normalize-json-body
-                           (cl-json:decode-json-from-string
-                            (flexi-streams:octets-to-string plaintext
-                                                            :external-format :utf-8))))
+                 (request (jzon:parse
+                           (flexi-streams:octets-to-string plaintext
+                                                           :external-format :utf-8)))
                  (method (json-assoc :method request))
                  (path (json-assoc :path request)))
             (unless (valid-agent-request-p method path)

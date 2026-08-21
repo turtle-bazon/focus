@@ -127,32 +127,36 @@
 
 (defun envelope-encode-json (ts nonce ciphertext tag)
   "Encode envelope fields into a JSON string with base64 payloads."
-  (with-output-to-string (stream)
-    (cl-json:encode-json-alist
-     `((:v . 1)
-       (:ts . ,ts)
-       (:n . ,(cl-base64:usb8-array-to-base64-string nonce))
-       (:ct . ,(cl-base64:usb8-array-to-base64-string ciphertext))
-       (:tg . ,(cl-base64:usb8-array-to-base64-string tag)))
-     stream)))
+  (jzon:stringify
+   (hash/make (list (list "v" 1)
+                    (list "ts" ts)
+                    (list "n" (cl-base64:usb8-array-to-base64-string nonce))
+                    (list "ct" (cl-base64:usb8-array-to-base64-string ciphertext))
+                    (list "tg" (cl-base64:usb8-array-to-base64-string tag)))
+              :test #'equal)))
 
-(defun envelope-json-key (alist name)
-  "Look up NAME in a cl-json decoded envelope alist (uppercase keywords)."
-  (assoc-ref (intern (string-upcase name) :keyword) alist))
+(defun envelope-json-key (obj name)
+  "Look up NAME (a string key) in a parsed JSON object."
+  (when (hash-table-p obj)
+    (gethash name obj)))
 
 (defun envelope-parse-json (json-string)
   "Decode envelope JSON into (values ts nonce ciphertext tag), or NIL if any
    field is missing or malformed."
-  (let* ((alist (cl-json:decode-json-from-string json-string))
-         (ts (envelope-json-key alist "ts"))
-         (b64 (lambda (name) (when (envelope-json-key alist name)
-                               (cl-base64:base64-string-to-usb8-array
-                                (envelope-json-key alist name))))))
-    (when (and (integerp ts)
-               (> (length (or (envelope-json-key alist "n") "")) 0)
-               (> (length (or (envelope-json-key alist "ct") "")) 0)
-               (> (length (or (envelope-json-key alist "tg") "")) 0))
-      (values ts (funcall b64 "n") (funcall b64 "ct") (funcall b64 "tg")))))
+  (let ((obj (ignore-errors (jzon:parse json-string))))
+    (when (hash-table-p obj)
+      (let ((ts (envelope-json-key obj "ts")))
+        (when (and (integerp ts)
+                   (> (length (or (envelope-json-key obj "n") "")) 0)
+                   (> (length (or (envelope-json-key obj "ct") "")) 0)
+                   (> (length (or (envelope-json-key obj "tg") "")) 0))
+          (values ts
+                  (cl-base64:base64-string-to-usb8-array
+                   (envelope-json-key obj "n"))
+                  (cl-base64:base64-string-to-usb8-array
+                   (envelope-json-key obj "ct"))
+                  (cl-base64:base64-string-to-usb8-array
+                   (envelope-json-key obj "tg"))))))))
 
 ;;; Replay window (both peers use CL's get-universal-time, seconds)
 

@@ -17,6 +17,7 @@
 
 (defpackage :focus
   (:use :cl :local-time :iterate :cl-bazon :metabang-bind :cl-postgres)
+  (:local-nicknames (:jzon :com.inuoe.jzon))
   (:nicknames :f)
   (:export #:main
            #:remote-main

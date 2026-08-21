@@ -64,7 +64,7 @@
 
 (test remote-json-decoder-normalizes-keys
   (let* ((decoded (focus::json->
-                   (cl-json:decode-json-from-string
+                   (jzon:parse
                     "{\"tickets\":[{\"id\":1,\"title\":\"x\",\"assignee_id\":5,\"is_default\":true}]}"))))
     (let ((ticket (car (getf decoded :tickets))))
       (is (= 1 (getf ticket :id)))

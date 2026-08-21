@@ -83,25 +83,19 @@
         (list "")))
 
 (defun %json-assoc-key (json key)
-  "Look up KEY in a cl-json decoded alist. Handles double-hyphen keywords.
-cl-json converts json_key to :json--key (double hyphen)."
-  (let* ((kw-single (intern (substitute #\- #\_ (string-upcase key)) :keyword))
-         ;; cl-json converts _ to -- (double hyphen), e.g. first_name → :first--name
-         (doubled (with-output-to-string (s)
-                    (iter (for ch in-string key)
-                      (if (char= ch #\_)
-                          (write-string "--" s)
-                          (write-char (char-upcase ch) s)))))
-         (kw-double (intern doubled :keyword))
-         (kw-lower (intern (string-downcase doubled) :keyword)))
-    (or (cdr (assoc kw-single json :test #'equal))
-        (cdr (assoc kw-double json :test #'equal))
-        (cdr (assoc kw-lower json :test #'equal)))))
+  "Look up KEY (a string) in a parsed JSON object. Tries the exact key, then
+   lowercase and uppercase variants to accommodate provider quirks."
+  (when (hash-table-p json)
+    (let ((name (string key)))
+      (json-normalize
+       (or (gethash name json)
+           (gethash (string-downcase name) json)
+           (gethash (string-upcase name) json))))))
 
 (defun %clean-json-value (val)
-  "Filter out cl-json's representation of JSON false/true/null and string \"false\"/\"true\"."
-  (cond ((eq val :false) nil)
-        ((eq val :true) t)
+  "Normalize JSON null/false/true representations and string \"false\"/\"true\"
+   coming from userinfo providers."
+  (cond ((eq val 'null) nil)
         ((and (stringp val) (string-equal val "false")) nil)
         ((and (stringp val) (string-equal val "true")) t)
         (t val)))
@@ -125,7 +119,7 @@ Returns (values email name username picture) or signals an error."
          (response (dexador:request userinfo-uri
                                    :headers `(("Authorization" . ,(format nil "Bearer ~a" access-tok)))
                                    :force-string t))
-         (user-data (cl-json:decode-json-from-string response))
+         (user-data (jzon:parse response))
          (email-key (config->oauth2-userinfo-email-key *config*))
          (username-key (config->oauth2-userinfo-username-key *config*))
          (name-key (config->oauth2-userinfo-name-key *config*))

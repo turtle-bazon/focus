@@ -34,20 +34,20 @@
     (get-output-stream-string out)))
 
 (defun json-key (key)
-  "Normalize a decoded cl-json keyword key (collapse '--' to '-')."
-  (normalize-json-key key))
+  "Normalize a JSON string key into a hyphenated keyword."
+  (intern (substitute #\- #\_ (string-upcase key)) :keyword))
 
 (defun json-> (obj)
-  "Decode a cl-json result into plists: objects become plists, arrays lists."
-  (cond ((null obj) nil)
-        ((and (listp obj) (consp (car obj)))
-         (if (consp (caar obj))
-             (iter (for item in obj) (collecting (json-> item)))
-             (let ((plist nil))
-               (iter (for (key . val) in obj)
-                 (setf plist (list* (json-key key) (list* (json-> val) plist))))
-               plist)))
-        ((listp obj) (iter (for item in obj) (collecting (json-> item))))
+  "Convert parsed JSON (jzon structures) into plists: objects become plists,
+   arrays become lists, null becomes NIL."
+  (cond ((hash-table-p obj)
+         (let ((plist nil))
+           (iter (for (key value) in-hashtable obj)
+             (setf plist (list* (json-key key) (list* (json-> value) plist))))
+           plist))
+        ((stringp obj) obj)
+        ((vectorp obj) (iter (for item in-vector obj) (collecting (json-> item))))
+        ((eq obj 'null) nil)
         (t obj)))
 
 (defun url-encode (str)
@@ -74,7 +74,7 @@
 (defun decode-json-text (text)
   "Decode TEXT as JSON into plists, or return NIL."
   (when (and text (plusp (length text)))
-    (json-> (cl-json:decode-json-from-string text))))
+    (ignore-errors (json-> (jzon:parse text)))))
 
 (defvar *focus-cli-server* nil
   "Bound to the active site's server URL by WITH-CLI-SITE.")
@@ -96,15 +96,15 @@
 
 (defun envelope-request-payload (master method path query body)
   "Build the encrypted request envelope JSON for the inner call."
-  (let* ((inner (with-output-to-string (stream)
-                  (cl-json:encode-json-alist
-                   `((:method . ,(string-downcase (symbol-name method)))
-                     (:path . ,path)
-                     (:query . ,(or query ""))
-                     (:body . ,(when body
-                                 (cl-json:encode-json-to-string
-                                  (plist-to-json body)))))
-                   stream)))
+       (let* ((inner (jzon:stringify
+                (hash/make
+                  (list (list "method" (string-downcase (symbol-name method)))
+                        (list "path" path)
+                        (list "query" (or query ""))
+                        (list "body" (if body
+                                         (jzon:stringify (plist-to-json body))
+                                         'null)))
+                  :test #'equal)))
          (ts (get-universal-time)))
     (multiple-value-bind (nonce ciphertext tag)
         (envelope-encrypt master +envelope-direction-request+ ts
@@ -128,7 +128,7 @@
                         (ironclad:bad-authentication-tag ()
                           (error 'api-error :message
                                  "Envelope authentication failed"))))
-           (inner (cl-json:decode-json-from-string
+           (inner (jzon:parse
                    (flexi-streams:octets-to-string plaintext
                                                    :external-format :utf-8))))
       (values (or (envelope-json-key inner "status") 500)
@@ -136,7 +136,7 @@
 
 (defun condition-body-text (e)
   "Extract the failed response body of a dexador error E as text."
-  (let ((body (response-body e)))
+  (let ((body (dexador:response-body e)))
     (typecase body
       (stream (read-all-stream body))
       (string body)
@@ -154,7 +154,7 @@
               (getf (decode-json-text body-text) :error))))
         (when text
           (ignore-errors (getf (decode-json-text text) :error)))
-        (format nil "HTTP ~a" (response-status e)))))
+        (format nil "HTTP ~a" (dexador:response-status e)))))
 
 (defun api-call (method path &key query body (server *focus-cli-server*)
                                    (bearer *focus-cli-bearer*)

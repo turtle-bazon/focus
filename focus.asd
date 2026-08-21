@@ -6,7 +6,7 @@
   :depends-on (#:clack
                #:clack-handler-wookie
                #:websocket-driver
-               #:cl-json
+               #:com.inuoe.jzon
                #:postmodern
                #:cl-postgres+local-time
                #:iterate

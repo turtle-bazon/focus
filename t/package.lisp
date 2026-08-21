@@ -17,6 +17,7 @@
 
 (defpackage :focus/tests
   (:use :cl :local-time :iterate :fiveam :focus)
+  (:local-nicknames (:jzon :com.inuoe.jzon))
   (:export #:run-focus-tests))
 
 (in-package :focus/tests)

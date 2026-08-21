@@ -70,21 +70,28 @@
                        :description description
                        :key key))
 
-(defparameter +focus-cli-config-path+
-  (merge-pathnames #P".focus-cli" (user-homedir-pathname)))
+(defvar *focus-cli-config-path* nil
+  "Overrides the CLI config path when bound (used by tests).")
+
+(defun focus-cli-config-path ()
+  "Path of the CLI config file, resolved against the current user's home
+   at call time, so binaries do not bake in the build host's HOME."
+  (or *focus-cli-config-path*
+      (merge-pathnames #P".focus-cli" (user-homedir-pathname))))
 
 (defun read-cli-config ()
   "Read the CLI config, or NIL. Returns (:sites ((NAME . PLIST) ...)).
-  A legacy bare-plist file, or an old (:current ...) file, is normalized."
-  (when (probe-file +focus-cli-config-path+)
-    (handler-case
-        (let ((data (with-open-file (stream +focus-cli-config-path+)
-                      (read stream nil))))
-          (cond ((and (consp data) (eq (car data) :sites)) data)
-                ((and (consp data) (eq (car data) :current))
-                 (list :sites (getf data :sites)))
-                (t (list :sites (list (cons "default" data))))))
-      (error () nil))))
+   A legacy bare-plist file, or an old (:current ...) file, is normalized."
+  (let ((path (focus-cli-config-path)))
+    (when (probe-file path)
+      (handler-case
+          (let ((data (with-open-file (stream path)
+                        (read stream nil))))
+            (cond ((and (consp data) (eq (car data) :sites)) data)
+                  ((and (consp data) (eq (car data) :current))
+                   (list :sites (getf data :sites)))
+                  (t (list :sites (list (cons "default" data))))))
+        (error () nil)))))
 
 (defun cli-site-config (site)
   "The plist of the named SITE, or NIL."
@@ -92,13 +99,13 @@
 
 (defun write-cli-config-file (config)
   "Persist the full CONFIG structure."
-  (with-open-file (stream +focus-cli-config-path+
+  (with-open-file (stream (focus-cli-config-path)
                           :direction :output :if-exists :supersede)
     (prin1 config stream)))
 
 (defun store-site-config (config site)
   "Persist CONFIG merged over SITE's current values, keeping other sites.
-  Returns the merged plist."
+   Returns the merged plist."
   (let* ((loaded (read-cli-config))
          (sites (getf loaded :sites))
          (others (remove site sites :key #'car :test #'string=))
@@ -110,7 +117,7 @@
 (defun write-cli-config (config &optional (site "default"))
   "Persist CONFIG into SITE (merged over existing keys), keeping other sites."
   (store-site-config config site)
-  (format t "Saved agent identity to ~a~%" +focus-cli-config-path+))
+  (format t "Saved agent identity to ~a~%" (focus-cli-config-path)))
 
 (defun cli-site-names ()
   "Names of all configured sites."

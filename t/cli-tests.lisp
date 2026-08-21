@@ -73,12 +73,12 @@
 
 (defun with-test-config (config thunk)
   "Run THUNK with the CLI config path pointed at a temp copy of CONFIG."
-  (let ((focus::+focus-cli-config-path+
+  (let ((focus::*focus-cli-config-path*
           (merge-pathnames #P".focus-cli-test" (user-homedir-pathname))))
     (focus::write-cli-config-file config)
     (unwind-protect (funcall thunk)
-      (when (probe-file focus::+focus-cli-config-path+)
-        (delete-file focus::+focus-cli-config-path+)))))
+      (when (probe-file focus::*focus-cli-config-path*)
+        (delete-file focus::*focus-cli-config-path*)))))
 
 (test legacy-config-wraps-as-default-site
   (with-test-config '(:server-url "http://x:8080" :key "focus1-abc" :board-id 3)

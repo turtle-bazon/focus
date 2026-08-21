@@ -4,12 +4,12 @@ all: build
 
 SBCL_OPTS = sbcl --noinform --non-interactive
 
-# Mark loaded shared objects dont-save so the dumped binary never records
-# build-host sonames (libcrypto.so.1.1 vs .so.3); SBCL would otherwise try
-# to reopen them by that exact name at startup and die on a target with a
-# different OpenSSL. focus::reload-foreign-libraries re-loads everything
-# through CFFI at app start, letting candidate lists match the running host.
-DONTSAVE_FX = --eval '(dolist (o sb-sys:*shared-objects*) (setf (sb-alien::shared-object-dont-save o) t))'
+# Drop the recorded shared objects at the last moment before the core is
+# written: SBCL would otherwise reopen them by build-host soname at startup
+# (libcrypto.so.1.1 vs .so.3) and die on a target with a different OpenSSL.
+# focus::reload-foreign-libraries re-loads everything through CFFI at app
+# start, letting candidate lists match the running host.
+DONTSAVE_FX = --eval '(push (lambda () (format t "~&dropping ~d saved shared object(s)~%" (length sb-sys:*shared-objects*)) (setf sb-sys:*shared-objects* nil)) uiop:*image-dump-hook*)'
 
 focus: generate-static
 	$(SBCL_OPTS) \

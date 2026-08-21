@@ -51,9 +51,10 @@
 (test remote-command-builds
   (let ((cmd (focus::make-remote-root-command)))
     (is (string= (clingon:command-name cmd) "focus-cli"))
-    (is (= 11 (length (clingon:command-sub-commands cmd))))
+    (is (= 12 (length (clingon:command-sub-commands cmd))))
     (iter (for name in '("add-site" "add-board" "list-sites" "list-boards" "list"
-                         "show" "create" "update" "delete" "comment" "label"))
+                         "lifecycle" "show" "create" "update" "delete" "comment"
+                         "label"))
       (is (find-if (lambda (sub) (string= name (clingon:command-name sub)))
                    (clingon:command-sub-commands cmd))
           "focus-cli should have ~a subcommand" name))

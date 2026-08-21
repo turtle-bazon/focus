@@ -292,6 +292,17 @@
     (when board-id
       (let ((forbidden (actor-board-access-error env board-id)))
         (when forbidden (return-from handle-create-ticket forbidden))))
+    ;; Reject statuses that are not columns of the effective board —
+    ;; otherwise the ticket lands in a column that does not exist.
+    (let ((effective-board (or board-id (get-default-board-id)))
+          (requested-status (getf fields :status)))
+      (when (and requested-status effective-board
+                 (not (member requested-status
+                              (board-status-codes effective-board)
+                              :test #'string=)))
+        (return-from handle-create-ticket
+          (error-response
+           (format nil "Unknown status ~a for this board" requested-status)))))
     (bind ((id (create-ticket title
                               :description (getf fields :description)
                               :status (getf fields :status)
@@ -311,6 +322,11 @@
         (ws-broadcast-ticket-created ticket)
         (json-response `(:id ,id) 201)))))
 
+(defun board-status-codes (board-id)
+  "Status codes defined on BOARD-ID."
+  (iter (for s in (list-board-statuses board-id))
+    (collecting (getf s :code))))
+
 (defun validate-status-transition (old-ticket new-board status)
   "Enforce lifecycle transitions when STATUS changes. Returns
    (values error-response-or-nil coerced-status). On an unchanged board every
@@ -323,8 +339,7 @@
               (values (error-response
                        "Status transition is not allowed by this board's workflow")
                       status))
-          (let ((codes (iter (for s in (list-board-statuses new-board))
-                         (collecting (getf s :code)))))
+          (let ((codes (board-status-codes new-board)))
             (values nil
                     (if (member status codes :test #'string=)
                         status

@@ -536,6 +536,34 @@ Check --bearer, --server-public and --agent-private — swapped, stale, or revok
                   (opt-string "search" "Full-text search query" :search)
                   (opt-flag "json" "Output as JSON" :json))))
 
+(defun make-remote-lifecycle-command ()
+  "Create the lifecycle command."
+  (clingon:make-command
+   :name "lifecycle"
+   :description "Show statuses and allowed transitions for a board"
+   :handler (lambda (cmd)
+              (with-api-errors
+                (multiple-value-bind (board site) (cli-require-board-spec cmd)
+                  (with-cli-site (site)
+                    (let ((board-id (cli-resolve-board-id site board)))
+                      (if board-id
+                          (let* ((statuses (getf (api-call :get (format nil "/api/boards/~a/statuses" board-id))
+                                                 :statuses))
+                                 (transitions (getf (api-call :get (format nil "/api/boards/~a/transitions" board-id))
+                                                    :transitions)))
+                            (format t "Statuses:~%")
+                            (iter (for s in statuses)
+                              (format t "  ~a~@[ (~a)~]~%"
+                                      (getf s :code) (getf s :name)))
+                            (format t "~%Transitions:~%")
+                            (if transitions
+                                (iter (for tr in transitions)
+                                  (format t "  ~a -> ~a~%"
+                                          (getf tr :from-code) (getf tr :to-code)))
+                                (format t "  (none)~%")))
+                          (format t "Board ~a not found on site ~a.~%" board site)))))))
+   :options (list (make-board-option))))
+
 (defun make-remote-show-command ()
   "Create the show command."
   (clingon:make-command
@@ -760,6 +788,7 @@ Check --bearer, --server-public and --agent-private — swapped, stale, or revok
                        (make-remote-list-sites-command)
                        (make-remote-list-boards-command)
                        (make-remote-list-command)
+                       (make-remote-lifecycle-command)
                        (make-remote-show-command)
                        (make-remote-create-command)
                        (make-remote-update-command)

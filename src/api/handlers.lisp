@@ -84,16 +84,30 @@
                        (parse-integer item))))
       (when id (collecting id)))))
 
+(defun read-stream-bytes (stream)
+  "Read STREAM to EOF, returning all bytes as a single octet vector."
+  (iter (for chunk = (make-array 8192 :element-type '(unsigned-byte 8)))
+        (for n = (read-sequence chunk stream))
+        (when (plusp n)
+          (collect (subseq chunk 0 n) into parts)
+          (sum n into total))
+        (until (< n (length chunk)))
+        (finally (return
+                   (let ((out (make-array total :element-type '(unsigned-byte 8))))
+                     (iter (for part in parts)
+                           (for pos initially 0 then (+ pos (length part)))
+                           (replace out part :start1 pos))
+                     out)))))
+
 (defun raw-body-string (env)
   "Read the raw request body from ENV as a UTF-8 string."
   (let ((body (getf env :raw-body)))
     (when body
-      (if (typep body 'stream)
-          (let* ((buf (make-array 4096 :element-type '(unsigned-byte 8) :fill-pointer t))
-                 (pos (read-sequence buf body)))
-            (setf (fill-pointer buf) pos)
-            (flexi-streams:octets-to-string buf :external-format :utf-8))
-          (flexi-streams:octets-to-string body :external-format :utf-8)))))
+      (flexi-streams:octets-to-string
+       (if (typep body 'stream)
+           (read-stream-bytes body)
+           body)
+       :external-format :utf-8))))
 
 (defun parse-json-body (env)
   "Parse the JSON request body from Clack env into jzon structures

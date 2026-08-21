@@ -18,7 +18,7 @@
 (defsystem :focus-cli
   :name "focus-cli"
   :license "GPL-3.0-or-later"
-  :version "0.0.1.3"
+  :version "0.0.2.0"
   :description "Remote command-line ticket client for Focus"
   :depends-on (#:focus)
   :build-operation "program-op"

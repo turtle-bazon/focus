@@ -22,6 +22,18 @@
 (defvar *router* nil)
 (defvar *config* nil)
 
+(defun reload-foreign-libraries ()
+  "Refresh CFFI foreign libraries against the running host. Binaries are
+   dumped with shared objects marked dont-save, so nothing is reopened at
+   startup by build-host soname (libcrypto.so.1.1 vs .so.3); here we drop
+   the stale handles and load every registered library through its own
+   candidate list, matching whatever the target machine has."
+  (dolist (lib (cffi:list-foreign-libraries))
+    (ignore-errors (cffi:close-foreign-library lib)))
+  (dolist (lib (cffi:list-foreign-libraries :loaded-only nil))
+    (ignore-errors
+     (cffi:load-foreign-library (cffi:foreign-library-name lib)))))
+
 (defun app (env)
   "Main app handler — routes to WS or normal handler."
   (if (websocket-driver:websocket-p env)
@@ -64,6 +76,7 @@
 (defun start-server (cmd)
   "Bootstrap the database and run the web server."
   (setf *random-state* (make-random-state t))
+  (reload-foreign-libraries)
   (let ((args (clingon:command-arguments cmd)))
     (when args
       (format t "Unknown command: ~{~a~^ ~}~%" args)

@@ -749,4 +749,5 @@
 
 (defun remote-main ()
   "Entry point for the focus-cli binary."
+  (reload-foreign-libraries)
   (clingon:run (make-remote-root-command)))

@@ -18,6 +18,7 @@
                #:bordeaux-threads
                #:uiop
                #:dexador
+               #:cffi
                #:cl-oauth2
                #:cl-base64
                #:ironclad)

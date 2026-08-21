@@ -4,11 +4,19 @@ all: build
 
 SBCL_OPTS = sbcl --noinform --non-interactive
 
+# Mark loaded shared objects dont-save so the dumped binary never records
+# build-host sonames (libcrypto.so.1.1 vs .so.3); SBCL would otherwise try
+# to reopen them by that exact name at startup and die on a target with a
+# different OpenSSL. focus::reload-foreign-libraries re-loads everything
+# through CFFI at app start, letting candidate lists match the running host.
+DONTSAVE_FX = --eval '(dolist (o sb-sys:*shared-objects*) (setf (sb-alien::shared-object-dont-save o) t))'
+
 focus: generate-static
 	$(SBCL_OPTS) \
 	  --eval '(push :binary *features*)' \
 	  --eval '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' \
 	  --eval '(ql:quickload :focus :silent t)' \
+	  $(DONTSAVE_FX) \
 	  --eval '(ensure-directories-exist "build")' \
 	  --eval '(asdf:make "focus")'
 	@if [ -n "$(BUILD_SUFFIX)" ]; then mv build/focus build/focus$(BUILD_SUFFIX); fi
@@ -38,6 +46,7 @@ focus-cli:
 	  --eval '(push :binary *features*)' \
 	  --eval '(push (merge-pathnames #P"internal-libs/cl-oauth2/" *default-pathname-defaults*) asdf:*central-registry*)' \
 	  --eval '(ql:quickload :focus :silent t)' \
+	  $(DONTSAVE_FX) \
 	  --eval '(ensure-directories-exist "build")' \
 	  --eval '(asdf:make "focus-cli")'
 

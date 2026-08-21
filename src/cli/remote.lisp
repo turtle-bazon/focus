@@ -157,6 +157,47 @@
           (ignore-errors (getf (decode-json-text text) :error)))
         (format nil "HTTP ~a" (dexador:response-status e)))))
 
+(defun cli-progress-p ()
+  "Progress lines go to interactive stderr, or when FOCUS_CLI_TRACE=1."
+  (or (ignore-errors (interactive-stream-p *error-output*))
+      (string= (or (uiop:getenv "FOCUS_CLI_TRACE") "") "1")))
+
+(defun cli-progress (fmt &rest args)
+  "Print a progress line for the current enveloped call."
+  (when (cli-progress-p)
+    (apply #'format *error-output* fmt args)))
+
+(defun header-number (headers name)
+  "Numeric value of response header NAME, or NIL."
+  (when (hash-table-p headers)
+    (let ((value (gethash name headers)))
+      (and value
+           (parse-integer (princ-to-string value) :junk-allowed t)))))
+
+(defun read-stream-exact (stream n)
+  "Read exactly N octets from STREAM, erroring if it ends early. Never
+   relies on short reads meaning EOF: over TLS a short read just means
+   the record boundary was reached."
+  (let ((out (make-array n :element-type '(unsigned-byte 8)))
+        (pos 0))
+    (loop while (< pos n)
+          do (let ((got (read-sequence out stream :start pos :end n)))
+               (when (= got pos)
+                 (error 'api-error
+                        :message "Connection closed before full response"))
+               (setf pos got)))
+    out))
+
+(defun read-stream-to-eof (stream)
+  "Read STREAM until a zero-length read (true EOF), returning octets."
+  (let ((chunks nil)
+        (buf (make-array 65536 :element-type '(unsigned-byte 8))))
+    (loop for n = (read-sequence buf stream)
+          do (push (subseq buf 0 n) chunks)
+          until (zerop n)
+          finally (return (apply #'concatenate
+                                 '(unsigned-byte 8) (nreverse chunks))))))
+
 (defun api-call (method path &key query body (server *focus-cli-server*)
                                    (bearer *focus-cli-bearer*)
                                    (server-public *focus-cli-server-public*)
@@ -173,26 +214,29 @@
   (let* ((master (cli-master-key :server-public server-public
                                  :agent-private agent-private))
          (payload (envelope-request-payload master method path query body))
-         (url (format nil "~a/api/agent" server)))
+         (url (format nil "~a/api/agent" server))
+         (started (get-internal-real-time)))
+    ;; Show something before the request: DNS/connect can take seconds and
+    ;; a silent wait is indistinguishable from a hang.
+    (cli-progress "~&[focus-cli] ~(~a~) ~a ... "
+                  (string-downcase (symbol-name method)) path)
     (handler-case
-        (multiple-value-bind (stream status)
+        (multiple-value-bind (stream status headers)
             (dexador:request url :method :post :bearer-auth bearer
                              :content payload
                              :headers '(("content-type" . "application/json"))
                              :want-stream t :force-binary t)
           (declare (ignore status))
-          ;; Read the raw socket to EOF ourselves: dexador assembles
-          ;; content-length'd bodies with a single READ-SEQUENCE, which may
-          ;; legally return early and truncate large (>1MB) envelopes.
-          (let* ((buf (make-array 65536 :element-type '(unsigned-byte 8)))
-                 (text (with-output-to-string (out)
-                         (loop for n = (read-sequence buf stream)
-                               do (write-string
-                                   (flexi-streams:octets-to-string
-                                    buf :end n :external-format :utf-8)
-                                   out)
-                               until (< n (length buf)))
-                         (close stream))))
+          ;; Read exactly Content-Length octets when framed: short reads on
+          ;; TLS are record boundaries, not EOF, and proxies may hold the
+          ;; socket open afterwards.
+          (let* ((total (header-number headers "content-length"))
+                 (bytes (if total
+                            (read-stream-exact stream total)
+                            (read-stream-to-eof stream)))
+                 (text (flexi-streams:octets-to-string
+                        bytes :external-format :utf-8)))
+            (close stream)
             (multiple-value-bind (inner-status body-text)
                 (envelope-response-values master text)
               (unless (<= 200 inner-status 299)
@@ -200,11 +244,19 @@
                   (error 'api-error :message
                          (or (getf decoded :error)
                              (format nil "HTTP ~a" inner-status)))))
-              (decode-json-text body-text))))
-      (api-error (e) (error e))
+              (let ((result (decode-json-text body-text)))
+                (cli-progress "ok (~,2fs)~%"
+                              (/ (- (get-internal-real-time) started)
+                                 internal-time-units-per-second))
+                result))))
+      (api-error (e)
+        (cli-progress "failed~%")
+        (error e))
       (dexador.error:http-request-failed (e)
+        (cli-progress "failed~%")
         (error 'api-error :message (failed-call-message master e)))
       (error (e)
+        (cli-progress "failed~%")
         (error 'api-error :message (princ-to-string e))))))
 
 (defun verify-agent-credentials (server bearer server-public agent-private)

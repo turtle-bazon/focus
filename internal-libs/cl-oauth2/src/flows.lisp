@@ -30,6 +30,13 @@ Returns an OAuth2-TOKEN instance."
                                    :headers '(("Content-Type" . "application/x-www-form-urlencoded"))
                                    :force-string t)))
     (let ((data (parse-json-response response)))
+      ;; Providers report failed exchanges as JSON bodies containing an
+      ;; "error" field (often with HTTP 200/400) — surface that instead of
+      ;; silently building an empty token object.
+      (let ((err (or (json-assoc :error data)
+                     (json-assoc :error--description data))))
+        (when err
+          (error "Token endpoint rejected the exchange: ~a" err)))
       (make-instance 'oauth2-token
                      :access-token (or (json-assoc :access--token data)
                                        (json-assoc :access_token data))
@@ -58,6 +65,13 @@ Returns an OAuth2-TOKEN instance."
                                    :headers '(("Content-Type" . "application/x-www-form-urlencoded"))
                                    :force-string t)))
     (let ((data (parse-json-response response)))
+      ;; Providers report failed exchanges as JSON bodies containing an
+      ;; "error" field (often with HTTP 200/400) — surface that instead of
+      ;; silently building an empty token object.
+      (let ((err (or (json-assoc :error data)
+                     (json-assoc :error--description data))))
+        (when err
+          (error "Token endpoint rejected the exchange: ~a" err)))
       (make-instance 'oauth2-token
                      :access-token (or (json-assoc :access--token data)
                                        (json-assoc :access_token data))

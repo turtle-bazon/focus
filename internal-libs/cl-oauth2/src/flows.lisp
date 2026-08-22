@@ -24,11 +24,16 @@ Returns an OAuth2-TOKEN instance."
                    (:client_secret . ,(client-secret client))
                    ,@(when state `((:state . ,state)))))
          (body (url-encode-params params))
-         (response (dexador:request (token-uri client)
-                                   :method :post
-                                   :content body
-                                   :headers '(("Content-Type" . "application/x-www-form-urlencoded"))
-                                   :force-string t)))
+         (response (handler-case
+                       (dexador:request (token-uri client)
+                                        :method :post
+                                        :content body
+                                        :headers '(("Content-Type" . "application/x-www-form-urlencoded"))
+                                        :force-string t)
+                     (dexador.error:http-request-failed (e)
+                       (error "Token endpoint rejected the request (HTTP ~a): ~a"
+                              (dexador:response-status e)
+                              (dexador:response-body e))))))
     (let ((data (parse-json-response response)))
       ;; Providers report failed exchanges as JSON bodies containing an
       ;; "error" field (often with HTTP 200/400) — surface that instead of
@@ -59,11 +64,16 @@ Returns an OAuth2-TOKEN instance."
                    (:client_id . ,(client-id client))
                    (:client_secret . ,(client-secret client))))
          (body (url-encode-params params))
-         (response (dexador:request (token-uri client)
-                                   :method :post
-                                   :content body
-                                   :headers '(("Content-Type" . "application/x-www-form-urlencoded"))
-                                   :force-string t)))
+         (response (handler-case
+                       (dexador:request (token-uri client)
+                                        :method :post
+                                        :content body
+                                        :headers '(("Content-Type" . "application/x-www-form-urlencoded"))
+                                        :force-string t)
+                     (dexador.error:http-request-failed (e)
+                       (error "Token endpoint rejected the request (HTTP ~a): ~a"
+                              (dexador:response-status e)
+                              (dexador:response-body e))))))
     (let ((data (parse-json-response response)))
       ;; Providers report failed exchanges as JSON bodies containing an
       ;; "error" field (often with HTTP 200/400) — surface that instead of

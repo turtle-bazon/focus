@@ -125,7 +125,7 @@
             (iter (for c in-string (string name))
                   (if (char= c #\_)
                       (write-string "--" out)
-                      (write-char c out))))
+                      (write-char (char-upcase c) out))))
           :keyword))
 
 (defun json-value->lisp (value)
@@ -134,10 +134,15 @@
          (iter (for (key val) in-hashtable value)
            (collecting (cons (json-key-symbol key)
                              (json-value->lisp val)))))
+        ;; Strings are vectors in CL — test before the vector branch or
+        ;; every string gets shredded into a list of characters.
+        ((stringp value) value)
         ((vectorp value)
          (iter (for item in-vector value)
            (collecting (json-value->lisp item))))
-        ((eq value :null) nil)
+        ;; jzon parses JSON null as the symbol NULL (not a keyword).
+        ((and (symbolp value) (string-equal (symbol-name value) "NULL"))
+         nil)
         (t value)))
 
 (defun parse-json-response (body)

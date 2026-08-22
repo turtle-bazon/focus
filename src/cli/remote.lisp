@@ -161,6 +161,10 @@
   "Progress lines print only when FOCUS_CLI_TRACE=1."
   (string= (or (uiop:getenv "FOCUS_CLI_TRACE") "") "1"))
 
+(defun cli-no-pool-p ()
+  "When FOCUS_CLI_NOPOOL=1, use a fresh connection per API call."
+  (string= (or (uiop:getenv "FOCUS_CLI_NOPOOL") "") "1"))
+
 (defun cli-progress (fmt &rest args)
   "Print a progress line for the current enveloped call."
   (when (cli-progress-p)
@@ -224,6 +228,7 @@
             (dexador:request url :method :post :bearer-auth bearer
                              :content payload
                              :headers '(("content-type" . "application/json"))
+                             :keep-alive (not (cli-no-pool-p))
                              :force-binary t)
           (declare (ignore status))
           ;; Let dexador frame and assemble the body; reading pooled TLS

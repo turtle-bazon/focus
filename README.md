@@ -4,6 +4,31 @@ Kanban-style ticket tracker for teams. Create, manage, and track tickets
 with labels, assignees, observers, and boards. Updates propagate in real
 time over WebSocket.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/main.png" alt="Kanban board view"/>
+      <p align="center">Kanban board with priority grouping and drag-and-drop</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/manage-workflow.png" alt="Board workflow editor"/>
+      <p align="center">Per-board workflow: statuses, WIP limits, transitions</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/activity.png" alt="Board activity feed"/>
+      <p align="center">Board activity feed</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/all-activity.png" alt="All-activity feed across boards"/>
+      <p align="center">Cross-board activity, grouped by board</p>
+    </td>
+  </tr>
+</table>
+
 ## Features
 
 - Kanban board view with drag-and-drop between columns
